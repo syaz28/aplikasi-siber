@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\LaporanController;
 use App\Http\Controllers\MasterDataController;
 use App\Http\Controllers\ProfileController;
@@ -30,10 +31,21 @@ Route::get('/', function () {
 
 Route::middleware(['auth', 'verified'])->group(function () {
     
-    // Dashboard
-    Route::get('/dashboard', function () {
-        return Inertia::render('Dashboard');
-    })->name('dashboard');
+    // Dashboard with statistics
+    Route::get('/dashboard', [DashboardController::class, 'index'])
+        ->name('dashboard');
+    
+    // Dashboard API routes
+    Route::prefix('api/dashboard')->name('dashboard.')->group(function () {
+        Route::get('per-kabupaten', [DashboardController::class, 'getLaporanPerKabupaten'])
+            ->name('per-kabupaten');
+        Route::get('per-kecamatan', [DashboardController::class, 'getLaporanPerKecamatan'])
+            ->name('per-kecamatan');
+        Route::get('kerugian-per-bulan', [DashboardController::class, 'getKerugianPerBulan'])
+            ->name('kerugian-per-bulan');
+        Route::get('export', [DashboardController::class, 'exportStatistics'])
+            ->name('export');
+    });
 
     // ============================================
     // LAPORAN KEJAHATAN SIBER

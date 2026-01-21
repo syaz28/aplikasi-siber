@@ -1,0 +1,300 @@
+@startuml ERD_Siber_Polda_Jateng_Refactored
+
+!define TABLE(name) entity name << (T,#FFAAAA) >>
+!define MASTER(name) entity name << (M,#AAFFAA) >>
+!define PK(x) <b><color:#b8860b>x</color></b>
+!define FK(x) <color:#666666>x</color>
+!define UK(x) <u>x</u>
+
+title Entity Relationship Diagram (Refactored)\nSistem Laporan Kejahatan Siber - POLDA JATENG\nKonvensi: Bahasa Indonesia | Wilayah: Single Table (cahyadsn)
+
+skinparam linetype ortho
+skinparam entity {
+    BackgroundColor #FEFECE
+    BorderColor #A80036
+}
+
+skinparam package {
+    BackgroundColor #F5F5F5
+    BorderColor #999999
+}
+
+' ============================================
+' MASTER DATA WILAYAH (Single Table)
+' ============================================
+
+package "Master Data Wilayah (Single Table)" #E8F5E9 {
+    MASTER(wilayah) {
+        PK(kode) : varchar(13) <<PK>>
+        --
+        nama : varchar(100)
+        ==
+        Contoh kode:
+        33 = Jawa Tengah
+        33.74 = Kota Semarang
+        33.74.01 = Smg Tengah
+        33.74.01.1001 = Miroto
+    }
+}
+
+note bottom of wilayah
+  Single table untuk semua level:
+  - Provinsi: XX (2 char)
+  - Kab/Kota: XX.XX (5 char)
+  - Kecamatan: XX.XX.XX (8 char)
+  - Kelurahan: XX.XX.XX.XXXX (13 char)
+  
+  Sumber: github.com/cahyadsn/wilayah
+  Kepmendagri No 300.2.2-2138 Th 2025
+end note
+
+' ============================================
+' MASTER DATA KEPOLISIAN
+' ============================================
+
+package "Master Data Kepolisian" #E3F2FD {
+    MASTER(pangkat) {
+        PK(id) : integer <<PK>>
+        --
+        UK(kode) : varchar(20) <<UNIQUE>>
+        nama : varchar(100)
+        urutan : integer
+        created_at : datetime
+        updated_at : datetime
+    }
+
+    MASTER(jabatan) {
+        PK(id) : integer <<PK>>
+        --
+        UK(nama) : varchar(100) <<UNIQUE>>
+        deskripsi : text
+        created_at : datetime
+        updated_at : datetime
+    }
+}
+
+' ============================================
+' MASTER DATA KEJAHATAN
+' ============================================
+
+package "Master Data Kejahatan" #FFF3E0 {
+    MASTER(kategori_kejahatan) {
+        PK(id) : integer <<PK>>
+        --
+        UK(nama) : varchar(100) <<UNIQUE>>
+        deskripsi : text
+        is_active : boolean [default: true]
+        created_at : datetime
+        updated_at : datetime
+    }
+
+    MASTER(jenis_kejahatan) {
+        PK(id) : integer <<PK>>
+        --
+        FK(kategori_kejahatan_id) : integer <<FK>>
+        nama : varchar(100)
+        deskripsi : text
+        is_active : boolean [default: true]
+        created_at : datetime
+        updated_at : datetime
+    }
+}
+
+kategori_kejahatan ||--o{ jenis_kejahatan : "memiliki"
+
+' ============================================
+' USERS & ANGGOTA KEPOLISIAN
+' ============================================
+
+package "Users & Anggota" #E3F2FD {
+    TABLE(users) {
+        PK(id) : integer <<PK>>
+        --
+        FK(anggota_id) : integer <<FK>> [nullable]
+        UK(email) : varchar(100) <<UNIQUE>>
+        password : varchar(255)
+        role : varchar [superadmin|admin|operator]
+        is_active : boolean [default: true]
+        created_at : datetime
+        updated_at : datetime
+    }
+
+    TABLE(anggota) {
+        PK(id) : integer <<PK>>
+        --
+        FK(pangkat_id) : integer <<FK>>
+        FK(jabatan_id) : integer <<FK>>
+        UK(nrp) : varchar(20) <<UNIQUE>>
+        nama : varchar(100)
+        is_active : boolean [default: true]
+        created_at : datetime
+        updated_at : datetime
+    }
+}
+
+users }o--|| anggota : "bisa_menjadi"
+pangkat ||--o{ anggota : "pangkat"
+jabatan ||--o{ anggota : "jabatan"
+
+' ============================================
+' DATA ORANG & ALAMAT
+' ============================================
+
+package "Data Orang" #FCE4EC {
+    TABLE(orang) {
+        PK(id) : integer <<PK>>
+        --
+        UK(nik) : char(16) <<UNIQUE>> "NIK 16 digit"
+        nama : varchar(100)
+        tempat_lahir : varchar(100)
+        tanggal_lahir : date
+        jenis_kelamin : varchar [L/P]
+        pekerjaan : varchar(100)
+        telepon : varchar(20)
+        email : varchar(100)
+        created_at : datetime
+        updated_at : datetime
+    }
+
+    TABLE(alamat) {
+        PK(id) : integer <<PK>>
+        --
+        FK(orang_id) : integer <<FK>>
+        jenis_alamat : varchar [ktp|domisili]
+        FK(kode_provinsi) : varchar(2) <<FK>> "33"
+        FK(kode_kabupaten) : varchar(5) <<FK>> "33.74"
+        FK(kode_kecamatan) : varchar(8) <<FK>> "33.74.01"
+        FK(kode_kelurahan) : varchar(13) <<FK>> "33.74.01.1001"
+        detail_alamat : text
+        created_at : datetime
+        updated_at : datetime
+    }
+}
+
+orang ||--o{ alamat : "memiliki"
+wilayah ||--o{ alamat : "kode_provinsi"
+wilayah ||--o{ alamat : "kode_kabupaten"
+wilayah ||--o{ alamat : "kode_kecamatan"
+wilayah ||--o{ alamat : "kode_kelurahan"
+
+note bottom of alamat
+  Denormalized: simpan semua
+  kode wilayah untuk
+  kemudahan query/filter
+  per level wilayah
+end note
+
+' ============================================
+' LAPORAN KEJAHATAN
+' ============================================
+
+package "Laporan Kejahatan Siber" #FFF9C4 {
+    TABLE(laporan) {
+        PK(id) : integer <<PK>>
+        --
+        UK(nomor_stpa) : varchar(50) <<UNIQUE>>
+        tanggal_laporan : datetime "Tgl & waktu laporan"
+        FK(pelapor_id) : integer <<FK>>
+        hubungan_pelapor : varchar(30)
+        FK(petugas_id) : integer <<FK>>
+        FK(jenis_kejahatan_id) : integer <<FK>>
+        --
+        **Lokasi Kejadian (Denormalized)**
+        FK(kode_provinsi_kejadian) : varchar(2)
+        FK(kode_kabupaten_kejadian) : varchar(5)
+        FK(kode_kecamatan_kejadian) : varchar(8)
+        FK(kode_kelurahan_kejadian) : varchar(13)
+        alamat_kejadian : text
+        --
+        waktu_kejadian : datetime
+        modus : text
+        status : varchar [default: draft]
+        catatan : text
+        created_at : datetime
+        updated_at : datetime
+        created_by : integer
+        updated_by : integer
+    }
+
+    TABLE(korban) {
+        PK(id) : integer <<PK>>
+        --
+        FK(laporan_id) : integer <<FK>>
+        FK(orang_id) : integer <<FK>>
+        kerugian_nominal : decimal [default: 0]
+        kerugian_terbilang : varchar(255)
+        keterangan : text
+        created_at : datetime
+        updated_at : datetime
+    }
+
+    TABLE(tersangka) {
+        PK(id) : integer <<PK>>
+        --
+        FK(laporan_id) : integer <<FK>>
+        FK(orang_id) : integer <<FK>> [nullable]
+        catatan : text
+        created_at : datetime
+        updated_at : datetime
+    }
+
+    TABLE(identitas_tersangka) {
+        PK(id) : integer <<PK>>
+        --
+        FK(tersangka_id) : integer <<FK>>
+        jenis : varchar [telepon|rekening|sosmed|dll]
+        nilai : varchar(255) <<INDEX>>
+        platform : varchar(100)
+        nama_akun : varchar(100)
+        catatan : text
+        created_at : datetime
+        updated_at : datetime
+    }
+
+    TABLE(lampiran) {
+        PK(id) : integer <<PK>>
+        --
+        FK(laporan_id) : integer <<FK>>
+        nama_file : varchar(255)
+        path_file : varchar(500)
+        jenis_file : varchar(30)
+        ukuran_file : integer
+        deskripsi : text
+        created_at : datetime
+        updated_at : datetime
+    }
+}
+
+orang ||--o{ laporan : "melapor"
+anggota ||--o{ laporan : "menangani"
+jenis_kejahatan ||--o{ laporan : "kategorisasi"
+wilayah ||--o{ laporan : "lokasi_kejadian"
+
+laporan ||--o{ korban : "memiliki"
+orang ||--o{ korban : "menjadi_korban"
+
+laporan ||--o{ tersangka : "memiliki"
+orang ||--o{ tersangka : "dicurigai"
+tersangka ||--o{ identitas_tersangka : "memiliki"
+
+laporan ||--o{ lampiran : "memiliki"
+
+' ============================================
+' NOTES
+' ============================================
+
+note bottom of orang
+  NIK adalah UNIQUE
+  Satu orang bisa jadi:
+  - Pelapor (laporan.pelapor_id)
+  - Korban (korban.orang_id)
+  - Tersangka (tersangka.orang_id)
+end note
+
+note bottom of korban
+  Pelapor bisa MEWAKILI korban
+  1 laporan bisa N korban
+  Kerugian per korban
+end note
+
+@enduml

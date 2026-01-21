@@ -1,0 +1,300 @@
+// Entity Relationship Diagram - DBML Format (Refactored)
+// Sistem Laporan Kejahatan Siber - POLDA JATENG
+// Konvensi: Bahasa Indonesia (kecuali field system-centric)
+// Data Wilayah: Single table sesuai cahyadsn/wilayah (Kemendagri 2025)
+// Referensi: https://github.com/cahyadsn/wilayah
+// Visualisasi: https://dbdiagram.io
+
+// ============================================
+// MASTER DATA WILAYAH INDONESIA (Single Table)
+// Sumber: github.com/cahyadsn/wilayah
+// Format Kode:
+// - Provinsi: XX (2 digit) → '33'
+// - Kabupaten/Kota: XX.XX (5 char) → '33.74'
+// - Kecamatan: XX.XX.XX (8 char) → '33.74.01'
+// - Kelurahan/Desa: XX.XX.XX.XXXX (13 char) → '33.74.01.1001'
+// ============================================
+
+Table wilayah {
+  kode varchar(13) [pk, not null, note: 'Kode hierarkis Kemendagri']
+  nama varchar(100) [not null]
+
+  indexes {
+    kode [pk, name: 'wilayah_pkey']
+    nama [name: 'wilayah_nama_idx']
+  }
+}
+
+// ============================================
+// MASTER DATA KEPOLISIAN
+// ============================================
+
+Table pangkat {
+  id integer [pk, increment]
+  kode varchar(20) [unique, not null, note: 'AKBP, KOMPOL, AKP, dll']
+  nama varchar(100) [not null, note: 'Nama lengkap pangkat']
+  urutan integer [not null, note: 'Hierarki (1=tertinggi)']
+  created_at datetime
+  updated_at datetime
+
+  indexes {
+    kode [unique, name: 'pangkat_kode_unique']
+    urutan [name: 'pangkat_urutan_index']
+  }
+}
+
+Table jabatan {
+  id integer [pk, increment]
+  nama varchar(100) [unique, not null, note: 'Kanit, Kasubnit, Penyidik, dll']
+  deskripsi text
+  created_at datetime
+  updated_at datetime
+
+  indexes {
+    nama [unique, name: 'jabatan_nama_unique']
+  }
+}
+
+// ============================================
+// MASTER DATA KEJAHATAN
+// ============================================
+
+Table kategori_kejahatan {
+  id integer [pk, increment]
+  nama varchar(100) [unique, not null, note: 'Kategori besar kejahatan']
+  deskripsi text
+  is_active boolean [not null, default: true]
+  created_at datetime
+  updated_at datetime
+
+  indexes {
+    nama [unique, name: 'kategori_kejahatan_nama_unique']
+  }
+}
+
+Table jenis_kejahatan {
+  id integer [pk, increment]
+  kategori_kejahatan_id integer [not null, ref: > kategori_kejahatan.id]
+  nama varchar(100) [not null, note: 'Jenis spesifik kejahatan']
+  deskripsi text
+  is_active boolean [not null, default: true]
+  created_at datetime
+  updated_at datetime
+
+  indexes {
+    kategori_kejahatan_id [name: 'jenis_kejahatan_kategori_id_index']
+    (kategori_kejahatan_id, nama) [unique, name: 'jenis_kejahatan_kategori_nama_unique']
+  }
+}
+
+// ============================================
+// USERS & ANGGOTA KEPOLISIAN
+// ============================================
+
+Table users {
+  id integer [pk, increment]
+  anggota_id integer [ref: > anggota.id, note: 'Nullable - user bisa bukan anggota polisi']
+  email varchar(100) [unique, not null]
+  password varchar(255) [not null]
+  role varchar(20) [not null, note: 'superadmin | admin | operator']
+  is_active boolean [not null, default: true]
+  created_at datetime
+  updated_at datetime
+
+  indexes {
+    email [unique, name: 'users_email_unique']
+    anggota_id [name: 'users_anggota_id_index']
+    role [name: 'users_role_index']
+  }
+}
+
+Table anggota {
+  id integer [pk, increment]
+  pangkat_id integer [not null, ref: > pangkat.id]
+  jabatan_id integer [not null, ref: > jabatan.id]
+  nrp varchar(20) [unique, not null, note: 'Nomor Registrasi Pokok']
+  nama varchar(100) [not null]
+  is_active boolean [not null, default: true]
+  created_at datetime
+  updated_at datetime
+
+  indexes {
+    nrp [unique, name: 'anggota_nrp_unique']
+    pangkat_id [name: 'anggota_pangkat_id_index']
+    jabatan_id [name: 'anggota_jabatan_id_index']
+    is_active [name: 'anggota_is_active_index']
+  }
+}
+
+// ============================================
+// DATA ORANG (PELAPOR / KORBAN / TERSANGKA)
+// ============================================
+
+Table orang {
+  id integer [pk, increment]
+  nik char(16) [unique, not null, note: 'NIK 16 digit - UNIQUE']
+  nama varchar(100) [not null]
+  tempat_lahir varchar(100) [not null]
+  tanggal_lahir date [not null]
+  jenis_kelamin varchar(20) [not null, note: 'Laki-laki | Perempuan']
+  pekerjaan varchar(100) [not null]
+  telepon varchar(20) [not null]
+  email varchar(100)
+  created_at datetime
+  updated_at datetime
+
+  indexes {
+    nik [unique, name: 'orang_nik_unique']
+    telepon [name: 'orang_telepon_index']
+    nama [name: 'orang_nama_index']
+  }
+}
+
+// Alamat dengan kode wilayah denormalized untuk kemudahan query
+Table alamat {
+  id integer [pk, increment]
+  orang_id integer [not null, ref: > orang.id]
+  jenis_alamat varchar(20) [not null, note: 'ktp | domisili']
+  kode_provinsi varchar(2) [not null, ref: > wilayah.kode, note: 'Contoh: 33']
+  kode_kabupaten varchar(5) [not null, ref: > wilayah.kode, note: 'Contoh: 33.74']
+  kode_kecamatan varchar(8) [not null, ref: > wilayah.kode, note: 'Contoh: 33.74.01']
+  kode_kelurahan varchar(13) [not null, ref: > wilayah.kode, note: 'Contoh: 33.74.01.1001']
+  detail_alamat text [not null, note: 'Jalan, RT/RW, No. Rumah']
+  created_at datetime
+  updated_at datetime
+
+  indexes {
+    orang_id [name: 'alamat_orang_id_index']
+    kode_provinsi [name: 'alamat_kode_provinsi_index']
+    kode_kabupaten [name: 'alamat_kode_kabupaten_index']
+    kode_kecamatan [name: 'alamat_kode_kecamatan_index']
+    kode_kelurahan [name: 'alamat_kode_kelurahan_index']
+    (orang_id, jenis_alamat) [unique, name: 'alamat_orang_jenis_unique']
+  }
+}
+
+// ============================================
+// LAPORAN KEJAHATAN SIBER
+// ============================================
+
+Table laporan {
+  id integer [pk, increment]
+  nomor_stpa varchar(50) [unique, note: 'Nomor STPA - auto generate']
+  tanggal_laporan datetime [not null, note: 'Tanggal dan waktu laporan dibuat']
+  pelapor_id integer [not null, ref: > orang.id, note: 'Orang yang MELAPOR']
+  hubungan_pelapor varchar(30) [not null, note: 'diri_sendiri | keluarga | kuasa_hukum | lainnya']
+  petugas_id integer [not null, ref: > anggota.id, note: 'Petugas yang menangani']
+  jenis_kejahatan_id integer [not null, ref: > jenis_kejahatan.id]
+  
+  // Lokasi kejadian dengan kode wilayah denormalized
+  kode_provinsi_kejadian varchar(2) [ref: > wilayah.kode, note: 'Contoh: 33']
+  kode_kabupaten_kejadian varchar(5) [ref: > wilayah.kode, note: 'Contoh: 33.74']
+  kode_kecamatan_kejadian varchar(8) [ref: > wilayah.kode, note: 'Contoh: 33.74.01']
+  kode_kelurahan_kejadian varchar(13) [ref: > wilayah.kode, note: 'Contoh: 33.74.01.1001']
+  alamat_kejadian text [note: 'Detail alamat kejadian']
+  
+  waktu_kejadian datetime [not null]
+  modus text [not null, note: 'Deskripsi modus operandi']
+  status varchar(20) [not null, default: 'draft', note: 'draft | submitted | verified | investigating | closed | rejected']
+  catatan text
+  created_at datetime
+  updated_at datetime
+  created_by integer [ref: > users.id]
+  updated_by integer [ref: > users.id]
+
+  indexes {
+    nomor_stpa [unique, name: 'laporan_nomor_stpa_unique']
+    pelapor_id [name: 'laporan_pelapor_id_index']
+    petugas_id [name: 'laporan_petugas_id_index']
+    jenis_kejahatan_id [name: 'laporan_jenis_kejahatan_id_index']
+    kode_provinsi_kejadian [name: 'laporan_kode_provinsi_kejadian_index']
+    kode_kabupaten_kejadian [name: 'laporan_kode_kabupaten_kejadian_index']
+    kode_kecamatan_kejadian [name: 'laporan_kode_kecamatan_kejadian_index']
+    kode_kelurahan_kejadian [name: 'laporan_kode_kelurahan_kejadian_index']
+    tanggal_laporan [name: 'laporan_tanggal_laporan_index']
+    status [name: 'laporan_status_index']
+  }
+}
+
+// ============================================
+// KORBAN PER LAPORAN
+// ============================================
+
+Table korban {
+  id integer [pk, increment]
+  laporan_id integer [not null, ref: > laporan.id]
+  orang_id integer [not null, ref: > orang.id, note: 'Orang yang menjadi KORBAN']
+  kerugian_nominal decimal [not null, default: 0, note: 'Kerugian dalam rupiah']
+  kerugian_terbilang varchar(255)
+  keterangan text
+  created_at datetime
+  updated_at datetime
+
+  indexes {
+    laporan_id [name: 'korban_laporan_id_index']
+    orang_id [name: 'korban_orang_id_index']
+    (laporan_id, orang_id) [unique, name: 'korban_laporan_orang_unique']
+  }
+}
+
+// ============================================
+// TERSANGKA PER LAPORAN
+// ============================================
+
+Table tersangka {
+  id integer [pk, increment]
+  laporan_id integer [not null, ref: > laporan.id]
+  orang_id integer [ref: > orang.id, note: 'NULL jika belum teridentifikasi']
+  catatan text [note: 'Catatan tentang tersangka']
+  created_at datetime
+  updated_at datetime
+
+  indexes {
+    laporan_id [name: 'tersangka_laporan_id_index']
+    orang_id [name: 'tersangka_orang_id_index']
+  }
+}
+
+// ============================================
+// IDENTITAS DIGITAL TERSANGKA
+// ============================================
+
+Table identitas_tersangka {
+  id integer [pk, increment]
+  tersangka_id integer [not null, ref: > tersangka.id]
+  jenis varchar(30) [not null, note: 'telepon | rekening | sosmed | email | ewallet | kripto | marketplace | website | lainnya']
+  nilai varchar(255) [not null, note: 'Nomor/Username/Alamat']
+  platform varchar(100) [note: 'Nama platform: BCA, Mandiri, Instagram, OVO, dll']
+  nama_akun varchar(100) [note: 'Nama akun/pemilik jika diketahui']
+  catatan text
+  created_at datetime
+  updated_at datetime
+
+  indexes {
+    tersangka_id [name: 'identitas_tersangka_tersangka_id_index']
+    nilai [name: 'identitas_tersangka_nilai_index']
+    jenis [name: 'identitas_tersangka_jenis_index']
+    (jenis, nilai) [name: 'identitas_tersangka_jenis_nilai_index']
+  }
+}
+
+// ============================================
+// LAMPIRAN BUKTI
+// ============================================
+
+Table lampiran {
+  id integer [pk, increment]
+  laporan_id integer [not null, ref: > laporan.id]
+  nama_file varchar(255) [not null]
+  path_file varchar(500) [not null]
+  jenis_file varchar(30) [not null, note: 'gambar | dokumen | screenshot | video | audio | lainnya']
+  ukuran_file integer [note: 'Ukuran dalam bytes']
+  deskripsi text
+  created_at datetime
+  updated_at datetime
+
+  indexes {
+    laporan_id [name: 'lampiran_laporan_id_index']
+    jenis_file [name: 'lampiran_jenis_file_index']
+  }
+}

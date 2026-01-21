@@ -36,12 +36,22 @@ const masterData = reactive({
     anggota: [],
 });
 
-// Dynamic dropdown data
+// Dynamic dropdown data - Alamat KTP
 const kabupaten = ref([]);
 const kecamatan = ref([]);
 const kelurahan = ref([]);
 const jenisKejahatan = ref([]);
 const loadingWilayah = reactive({
+    kabupaten: false,
+    kecamatan: false,
+    kelurahan: false,
+});
+
+// Dynamic dropdown data - Lokasi Kejadian
+const kabupatenKejadian = ref([]);
+const kecamatanKejadian = ref([]);
+const kelurahanKejadian = ref([]);
+const loadingWilayahKejadian = reactive({
     kabupaten: false,
     kecamatan: false,
     kelurahan: false,
@@ -78,7 +88,14 @@ const getDefaultForm = () => ({
     kategori_kejahatan_id: '',
     jenis_kejahatan_id: '',
     waktu_kejadian: new Date().toISOString().slice(0, 16), // Default to now
+    
+    // Lokasi kejadian denormalized untuk dashboard/statistik
+    kode_provinsi_kejadian: '',
+    kode_kabupaten_kejadian: '',
+    kode_kecamatan_kejadian: '',
+    kode_kelurahan_kejadian: '',
     alamat_kejadian: '',
+    
     korban: [{
         orang: {
             nik: '',
@@ -254,6 +271,37 @@ const loadJenisKejahatan = async (kategoriId) => {
     } catch (err) { console.error(err); }
 };
 
+// Loaders for Lokasi Kejadian
+const loadKabupatenKejadian = async (kodeProvinsi) => {
+    if (!kodeProvinsi) { kabupatenKejadian.value = []; return; }
+    loadingWilayahKejadian.kabupaten = true;
+    try {
+        const res = await axios.get(`/api/master/kabupaten/${kodeProvinsi}`);
+        if (res.data.success) kabupatenKejadian.value = res.data.data;
+    } catch (err) { console.error(err); }
+    finally { loadingWilayahKejadian.kabupaten = false; }
+};
+
+const loadKecamatanKejadian = async (kodeKabupaten) => {
+    if (!kodeKabupaten) { kecamatanKejadian.value = []; return; }
+    loadingWilayahKejadian.kecamatan = true;
+    try {
+        const res = await axios.get(`/api/master/kecamatan/${kodeKabupaten}`);
+        if (res.data.success) kecamatanKejadian.value = res.data.data;
+    } catch (err) { console.error(err); }
+    finally { loadingWilayahKejadian.kecamatan = false; }
+};
+
+const loadKelurahanKejadian = async (kodeKecamatan) => {
+    if (!kodeKecamatan) { kelurahanKejadian.value = []; return; }
+    loadingWilayahKejadian.kelurahan = true;
+    try {
+        const res = await axios.get(`/api/master/kelurahan/${kodeKecamatan}`);
+        if (res.data.success) kelurahanKejadian.value = res.data.data;
+    } catch (err) { console.error(err); }
+    finally { loadingWilayahKejadian.kelurahan = false; }
+};
+
 // Watch for cascading changes
 watch(() => form.pelapor.alamat_ktp.kode_provinsi, (val) => {
     form.pelapor.alamat_ktp.kode_kabupaten = '';
@@ -279,6 +327,28 @@ watch(() => form.pelapor.alamat_ktp.kode_kecamatan, (val) => {
 watch(() => form.kategori_kejahatan_id, (val) => {
     form.jenis_kejahatan_id = '';
     loadJenisKejahatan(val);
+});
+
+// Watchers for Lokasi Kejadian cascading
+watch(() => form.kode_provinsi_kejadian, (val) => {
+    form.kode_kabupaten_kejadian = '';
+    form.kode_kecamatan_kejadian = '';
+    form.kode_kelurahan_kejadian = '';
+    kecamatanKejadian.value = [];
+    kelurahanKejadian.value = [];
+    loadKabupatenKejadian(val);
+});
+
+watch(() => form.kode_kabupaten_kejadian, (val) => {
+    form.kode_kecamatan_kejadian = '';
+    form.kode_kelurahan_kejadian = '';
+    kelurahanKejadian.value = [];
+    loadKecamatanKejadian(val);
+});
+
+watch(() => form.kode_kecamatan_kejadian, (val) => {
+    form.kode_kelurahan_kejadian = '';
+    loadKelurahanKejadian(val);
 });
 
 // Copy pelapor data to first korban
@@ -724,12 +794,77 @@ const handleKeydown = (event) => {
                         </div>
 
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Lokasi Kejadian</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Waktu Laporan</label>
+                            <input
+                                type="date"
+                                v-model="form.tanggal_laporan"
+                                class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
+                            />
+                        </div>
+                    </div>
+
+                    <!-- Lokasi Kejadian Section (Denormalized) -->
+                    <div class="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                        <h4 class="font-semibold text-navy mb-4 flex items-center gap-2">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            Lokasi Kejadian
+                            <span class="text-xs font-normal text-gray-500">(untuk statistik per wilayah)</span>
+                        </h4>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <SearchableSelect
+                                v-model="form.kode_provinsi_kejadian"
+                                :options="masterData.provinsi"
+                                value-key="kode"
+                                label-key="nama"
+                                placeholder="-- Pilih Provinsi --"
+                                search-placeholder="Cari provinsi..."
+                            />
+
+                            <SearchableSelect
+                                v-model="form.kode_kabupaten_kejadian"
+                                :options="kabupatenKejadian"
+                                value-key="kode"
+                                label-key="nama"
+                                placeholder="-- Pilih Kabupaten/Kota --"
+                                search-placeholder="Cari kabupaten/kota..."
+                                :disabled="!form.kode_provinsi_kejadian"
+                                :loading="loadingWilayahKejadian.kabupaten"
+                            />
+
+                            <SearchableSelect
+                                v-model="form.kode_kecamatan_kejadian"
+                                :options="kecamatanKejadian"
+                                value-key="kode"
+                                label-key="nama"
+                                placeholder="-- Pilih Kecamatan --"
+                                search-placeholder="Cari kecamatan..."
+                                :disabled="!form.kode_kabupaten_kejadian"
+                                :loading="loadingWilayahKejadian.kecamatan"
+                            />
+
+                            <SearchableSelect
+                                v-model="form.kode_kelurahan_kejadian"
+                                :options="kelurahanKejadian"
+                                value-key="kode"
+                                label-key="nama"
+                                placeholder="-- Pilih Kelurahan --"
+                                search-placeholder="Cari kelurahan..."
+                                :disabled="!form.kode_kecamatan_kejadian"
+                                :loading="loadingWilayahKejadian.kelurahan"
+                            />
+                        </div>
+
+                        <div class="mt-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Detail Alamat Kejadian</label>
                             <input
                                 type="text"
                                 v-model="form.alamat_kejadian"
                                 class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
-                                placeholder="Alamat kejadian"
+                                placeholder="Jl. ..., RT/RW, No. ..."
                             />
                         </div>
                     </div>
