@@ -1,7 +1,8 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
-import axios from 'axios';
+// Use window.axios which has CSRF token configured in bootstrap.js
+const axios = window.axios;
 import SidebarLayout from '@/Layouts/SidebarLayout.vue';
 import ToastContainer from '@/Components/ToastContainer.vue';
 import SearchableSelect from '@/Components/SearchableSelect.vue';
@@ -41,7 +42,7 @@ const form = reactive({
 const anggotaOptions = computed(() => {
     return masterData.anggota.map(a => ({
         ...a,
-        displayName: `${a.pangkat?.kode || ''} ${a.nama} (${a.nrp || ''})`.trim()
+        displayName: `${a.pangkat || ''} ${a.name} (${a.nrp || ''})`.trim()
     }));
 });
 

@@ -8,7 +8,7 @@ defineProps({
 });
 
 const form = useForm({
-    email: '',
+    nrp: '',
     password: '',
     remember: false,
 });
@@ -62,21 +62,23 @@ const submit = () => {
                     </div>
 
                     <form @submit.prevent="submit" class="space-y-5">
-                        <!-- Email Field -->
+                        <!-- NRP Field -->
                         <div>
-                            <label for="email" class="block text-sm font-medium text-white mb-1">
-                                Email
+                            <label for="nrp" class="block text-sm font-medium text-white mb-1">
+                                NRP (Nomor Registrasi Pokok)
                             </label>
                             <input
-                                id="email"
-                                type="email"
-                                v-model="form.email"
+                                id="nrp"
+                                type="text"
+                                inputmode="numeric"
+                                pattern="[0-9]*"
+                                v-model="form.nrp"
                                 autocomplete="username"
                                 autofocus
                                 class="block w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-slate-400 focus:border-tactical-accent focus:ring-tactical-accent focus:bg-white/20 transition-all"
-                                placeholder="email@polri.go.id"
+                                placeholder="12345678"
                             />
-                            <InputError :message="form.errors.email" class="mt-2" />
+                            <InputError :message="form.errors.nrp" class="mt-2" />
                         </div>
 
                         <!-- Password Field -->

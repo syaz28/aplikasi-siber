@@ -44,7 +44,7 @@ class UpdateLaporanRequest extends FormRequest
             'hubungan_pelapor' => 'sometimes|in:diri_sendiri,keluarga,kuasa_hukum,teman,rekan_kerja,lainnya',
 
             // Kejadian
-            'jenis_kejahatan_id' => 'sometimes|integer|exists:jenis_kejahatan,id',
+            'kategori_kejahatan_id' => 'sometimes|integer|exists:kategori_kejahatan,id',
             'waktu_kejadian' => 'sometimes|date|before_or_equal:now',
             'modus' => 'sometimes|string|min:10|max:5000',
             'catatan' => 'nullable|string|max:2000',
@@ -69,7 +69,7 @@ class UpdateLaporanRequest extends FormRequest
         return [
             'nomor_stpa.unique' => 'Nomor STPA sudah digunakan oleh laporan lain',
             'petugas_id.exists' => 'Petugas tidak ditemukan',
-            'jenis_kejahatan_id.exists' => 'Jenis kejahatan tidak ditemukan',
+            'kategori_kejahatan_id.exists' => 'Kategori kejahatan tidak ditemukan',
             'waktu_kejadian.before_or_equal' => 'Waktu kejadian tidak boleh di masa depan',
             'modus.min' => 'Modus operandi minimal 10 karakter',
             'status.in' => 'Status tidak valid',

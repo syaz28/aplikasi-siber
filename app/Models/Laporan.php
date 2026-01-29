@@ -18,7 +18,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $pelapor_id FK ke orang (pelapor)
  * @property string $hubungan_pelapor Hubungan dengan korban
  * @property int $petugas_id FK ke anggota (petugas penerima)
- * @property int $jenis_kejahatan_id FK ke jenis_kejahatan
+ * @property int $kategori_kejahatan_id FK ke kategori_kejahatan
  * @property string|null $kode_provinsi_kejadian Lokasi kejadian - provinsi
  * @property string|null $kode_kabupaten_kejadian Lokasi kejadian - kabupaten
  * @property string|null $kode_kecamatan_kejadian Lokasi kejadian - kecamatan
@@ -35,7 +35,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * 
  * @property-read Orang $pelapor
  * @property-read Anggota $petugas
- * @property-read JenisKejahatan $jenisKejahatan
+ * @property-read KategoriKejahatan $kategoriKejahatan
  * @property-read User|null $createdBy
  * @property-read User|null $updatedBy
  * @property-read Wilayah|null $provinsiKejadian
@@ -49,14 +49,15 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Laporan extends Model
 {
     /**
-     * Status enum values
+     * Status enum values (new workflow)
      */
-    public const STATUS_DRAFT = 'draft';
-    public const STATUS_SUBMITTED = 'submitted';
-    public const STATUS_VERIFIED = 'verified';
-    public const STATUS_INVESTIGATING = 'investigating';
-    public const STATUS_CLOSED = 'closed';
-    public const STATUS_REJECTED = 'rejected';
+    public const STATUS_PENYELIDIKAN = 'Penyelidikan';
+    public const STATUS_PENYIDIKAN = 'Penyidikan';
+    public const STATUS_TAHAP_I = 'Tahap I';
+    public const STATUS_TAHAP_II = 'Tahap II';
+    public const STATUS_SP3 = 'SP3';
+    public const STATUS_RJ = 'RJ';
+    public const STATUS_DIVERSI = 'Diversi';
 
     /**
      * Hubungan pelapor enum values
@@ -82,7 +83,7 @@ class Laporan extends Model
         'pelapor_id',
         'hubungan_pelapor',
         'petugas_id',
-        'jenis_kejahatan_id',
+        'kategori_kejahatan_id',
         'kode_provinsi_kejadian',
         'kode_kabupaten_kejadian',
         'kode_kecamatan_kejadian',
@@ -92,6 +93,11 @@ class Laporan extends Model
         'modus',
         'status',
         'catatan',
+        'assigned_subdit',
+        'assigned_by',
+        'assigned_at',
+        'disposisi_subdit',
+        'disposisi_unit',
         'created_by',
         'updated_by',
     ];
@@ -106,7 +112,10 @@ class Laporan extends Model
             'waktu_kejadian' => 'datetime',
             'pelapor_id' => 'integer',
             'petugas_id' => 'integer',
-            'jenis_kejahatan_id' => 'integer',
+            'kategori_kejahatan_id' => 'integer',
+            'assigned_subdit' => 'integer',
+            'assigned_by' => 'integer',
+            'assigned_at' => 'datetime',
             'created_by' => 'integer',
             'updated_by' => 'integer',
         ];
@@ -129,15 +138,15 @@ class Laporan extends Model
      */
     public function petugas(): BelongsTo
     {
-        return $this->belongsTo(Anggota::class, 'petugas_id');
+        return $this->belongsTo(User::class, 'petugas_id');
     }
 
     /**
-     * Jenis kejahatan
+     * Kategori kejahatan
      */
-    public function jenisKejahatan(): BelongsTo
+    public function kategoriKejahatan(): BelongsTo
     {
-        return $this->belongsTo(JenisKejahatan::class, 'jenis_kejahatan_id');
+        return $this->belongsTo(KategoriKejahatan::class, 'kategori_kejahatan_id');
     }
 
     /**
@@ -154,6 +163,14 @@ class Laporan extends Model
     public function updatedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'updated_by');
+    }
+
+    /**
+     * User yang melakukan assignment subdit
+     */
+    public function assignedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_by');
     }
 
     // Wilayah kejadian relationships
@@ -211,12 +228,13 @@ class Laporan extends Model
     public function getStatusLabelAttribute(): string
     {
         return match ($this->status) {
-            self::STATUS_DRAFT => 'Draft',
-            self::STATUS_SUBMITTED => 'Diajukan',
-            self::STATUS_VERIFIED => 'Terverifikasi',
-            self::STATUS_INVESTIGATING => 'Dalam Penyelidikan',
-            self::STATUS_CLOSED => 'Ditutup',
-            self::STATUS_REJECTED => 'Ditolak',
+            self::STATUS_PENYELIDIKAN => 'Penyelidikan',
+            self::STATUS_PENYIDIKAN => 'Penyidikan',
+            self::STATUS_TAHAP_I => 'Tahap I',
+            self::STATUS_TAHAP_II => 'Tahap II',
+            self::STATUS_SP3 => 'SP3',
+            self::STATUS_RJ => 'Restorative Justice',
+            self::STATUS_DIVERSI => 'Diversi',
             default => $this->status,
         };
     }
@@ -228,10 +246,9 @@ class Laporan extends Model
     {
         return match ($this->hubungan_pelapor) {
             self::HUBUNGAN_DIRI_SENDIRI => 'Diri Sendiri',
-            self::HUBUNGAN_KELUARGA => 'Keluarga',
-            self::HUBUNGAN_KUASA_HUKUM => 'Kuasa Hukum',
-            self::HUBUNGAN_TEMAN => 'Teman',
-            self::HUBUNGAN_REKAN_KERJA => 'Rekan Kerja',
+            self::HUBUNGAN_KELUARGA => 'Keluarga / Kerabat',
+            self::HUBUNGAN_KUASA_HUKUM => 'Kuasa Hukum / Pengacara',
+            self::HUBUNGAN_REKAN_KERJA => 'Rekan Kerja / Perusahaan',
             self::HUBUNGAN_LAINNYA => 'Lainnya',
             default => $this->hubungan_pelapor,
         };
@@ -300,11 +317,11 @@ class Laporan extends Model
     }
 
     /**
-     * Filter by jenis kejahatan
+     * Filter by kategori kejahatan
      */
-    public function scopeJenisKejahatan($query, int $jenisId)
+    public function scopeKategoriKejahatan($query, int $kategoriId)
     {
-        return $query->where('jenis_kejahatan_id', $jenisId);
+        return $query->where('kategori_kejahatan_id', $kategoriId);
     }
 
     /**
@@ -329,12 +346,13 @@ class Laporan extends Model
     public static function getStatusOptions(): array
     {
         return [
-            self::STATUS_DRAFT => 'Draft',
-            self::STATUS_SUBMITTED => 'Diajukan',
-            self::STATUS_VERIFIED => 'Terverifikasi',
-            self::STATUS_INVESTIGATING => 'Dalam Penyelidikan',
-            self::STATUS_CLOSED => 'Ditutup',
-            self::STATUS_REJECTED => 'Ditolak',
+            self::STATUS_PENYELIDIKAN => 'Penyelidikan',
+            self::STATUS_PENYIDIKAN => 'Penyidikan',
+            self::STATUS_TAHAP_I => 'Tahap I',
+            self::STATUS_TAHAP_II => 'Tahap II',
+            self::STATUS_SP3 => 'SP3',
+            self::STATUS_RJ => 'Restorative Justice',
+            self::STATUS_DIVERSI => 'Diversi',
         ];
     }
 
@@ -345,10 +363,9 @@ class Laporan extends Model
     {
         return [
             self::HUBUNGAN_DIRI_SENDIRI => 'Diri Sendiri',
-            self::HUBUNGAN_KELUARGA => 'Keluarga',
-            self::HUBUNGAN_KUASA_HUKUM => 'Kuasa Hukum',
-            self::HUBUNGAN_TEMAN => 'Teman',
-            self::HUBUNGAN_REKAN_KERJA => 'Rekan Kerja',
+            self::HUBUNGAN_KELUARGA => 'Keluarga / Kerabat',
+            self::HUBUNGAN_KUASA_HUKUM => 'Kuasa Hukum / Pengacara',
+            self::HUBUNGAN_REKAN_KERJA => 'Rekan Kerja / Perusahaan',
             self::HUBUNGAN_LAINNYA => 'Lainnya',
         ];
     }

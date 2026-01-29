@@ -40,7 +40,7 @@ Table pangkat {
   indexes {
     kode [unique, name: 'pangkat_kode_unique']
     urutan [name: 'pangkat_urutan_index']
-  }
+  }       
 }
 
 Table jabatan {

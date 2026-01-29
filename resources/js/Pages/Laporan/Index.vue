@@ -18,24 +18,26 @@ const status = ref(props.filters?.status || '');
 // Status badge colors
 const getStatusClass = (stat) => {
     const classes = {
-        draft: 'bg-gray-100 text-gray-800',
-        submitted: 'bg-blue-100 text-blue-800',
-        verified: 'bg-green-100 text-green-800',
-        investigating: 'bg-yellow-100 text-yellow-800',
-        closed: 'bg-purple-100 text-purple-800',
-        rejected: 'bg-red-100 text-red-800',
+        'Penyelidikan': 'bg-blue-100 text-blue-800',
+        'Penyidikan': 'bg-indigo-100 text-indigo-800',
+        'Tahap I': 'bg-yellow-100 text-yellow-800',
+        'Tahap II': 'bg-orange-100 text-orange-800',
+        'SP3': 'bg-red-100 text-red-800',
+        'RJ': 'bg-green-100 text-green-800',
+        'Diversi': 'bg-purple-100 text-purple-800',
     };
     return classes[stat] || 'bg-gray-100 text-gray-800';
 };
 
 const getStatusLabel = (stat) => {
     const labels = {
-        draft: 'Draft',
-        submitted: 'Diajukan',
-        verified: 'Terverifikasi',
-        investigating: 'Dalam Penyelidikan',
-        closed: 'Ditutup',
-        rejected: 'Ditolak',
+        'Penyelidikan': 'Penyelidikan',
+        'Penyidikan': 'Penyidikan',
+        'Tahap I': 'Tahap I',
+        'Tahap II': 'Tahap II',
+        'SP3': 'SP3',
+        'RJ': 'Restorative Justice',
+        'Diversi': 'Diversi',
     };
     return labels[stat] || stat;
 };
@@ -54,6 +56,22 @@ const formatDate = (date) => {
 const formatRupiah = (amount) => {
     if (!amount) return 'Rp 0';
     return 'Rp ' + parseInt(amount).toLocaleString('id-ID');
+};
+
+// Get total kerugian from korban array
+const getTotalKerugian = (item) => {
+    if (!item.korban || !Array.isArray(item.korban)) return 0;
+    return item.korban.reduce((sum, k) => sum + (parseInt(k.kerugian_nominal) || 0), 0);
+};
+
+// Extract nomor urut from nomor_stpa (e.g., "STPA/005/I/2026/Ditressiber" -> "005")
+const getShortStpa = (nomorStpa) => {
+    if (!nomorStpa) return '-';
+    const parts = nomorStpa.split('/');
+    if (parts.length >= 2) {
+        return parts[1]; // Return "005" from "STPA/005/I/2026/Ditressiber"
+    }
+    return nomorStpa;
 };
 
 // Search handler with debounce
@@ -103,8 +121,8 @@ const stats = computed(() => {
     const data = props.laporan?.data || [];
     return {
         total: props.laporan?.total || 0,
-        draft: data.filter(l => l.status === 'draft').length,
-        submitted: data.filter(l => l.status === 'submitted').length,
+        penyelidikan: data.filter(l => l.status === 'Penyelidikan').length,
+        penyidikan: data.filter(l => l.status === 'Penyidikan').length,
     };
 });
 </script>
@@ -133,27 +151,27 @@ const stats = computed(() => {
                 </div>
                 <div class="bg-white rounded-xl shadow-tactical border border-tactical-border p-4">
                     <div class="flex items-center gap-3">
-                        <div class="p-2 bg-gray-100 rounded-lg">
-                            <svg class="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        <div class="p-2 bg-blue-100 rounded-lg">
+                            <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                             </svg>
                         </div>
                         <div>
-                            <p class="text-2xl font-bold text-gray-600">{{ stats.draft }}</p>
-                            <p class="text-sm text-gray-500">Draft</p>
+                            <p class="text-2xl font-bold text-blue-600">{{ stats.penyelidikan }}</p>
+                            <p class="text-sm text-gray-500">Penyelidikan</p>
                         </div>
                     </div>
                 </div>
                 <div class="bg-white rounded-xl shadow-tactical border border-tactical-border p-4">
                     <div class="flex items-center gap-3">
-                        <div class="p-2 bg-tactical-success/10 rounded-lg">
-                            <svg class="w-6 h-6 text-tactical-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        <div class="p-2 bg-indigo-100 rounded-lg">
+                            <svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                             </svg>
                         </div>
                         <div>
-                            <p class="text-2xl font-bold text-tactical-success">{{ stats.submitted }}</p>
-                            <p class="text-sm text-gray-500">Diajukan</p>
+                            <p class="text-2xl font-bold text-indigo-600">{{ stats.penyidikan }}</p>
+                            <p class="text-sm text-gray-500">Penyidikan</p>
                         </div>
                     </div>
                 </div>
@@ -184,12 +202,13 @@ const stats = computed(() => {
                             class="rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
                         >
                             <option value="">Semua Status</option>
-                            <option value="draft">Draft</option>
-                            <option value="submitted">Diajukan</option>
-                            <option value="verified">Terverifikasi</option>
-                            <option value="investigating">Dalam Penyelidikan</option>
-                            <option value="closed">Ditutup</option>
-                            <option value="rejected">Ditolak</option>
+                            <option value="Penyelidikan">Penyelidikan</option>
+                            <option value="Penyidikan">Penyidikan</option>
+                            <option value="Tahap I">Tahap I</option>
+                            <option value="Tahap II">Tahap II</option>
+                            <option value="SP3">SP3</option>
+                            <option value="RJ">Restorative Justice</option>
+                            <option value="Diversi">Diversi</option>
                         </select>
 
                         <Link
@@ -214,7 +233,7 @@ const stats = computed(() => {
                                 <th class="px-4 py-3 text-left text-sm font-semibold">No. STPA</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold">Tanggal</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold">Pelapor</th>
-                                <th class="px-4 py-3 text-left text-sm font-semibold">Jenis Kejahatan</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold">Kategori Kejahatan</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold">Kerugian</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold">Status</th>
                                 <th class="px-4 py-3 text-center text-sm font-semibold">Aksi</th>
@@ -227,7 +246,7 @@ const stats = computed(() => {
                                 class="hover:bg-gray-50 transition-colors"
                             >
                                 <td class="px-4 py-3 text-sm font-medium text-navy">
-                                    {{ item.nomor_stpa || '-' }}
+                                    {{ getShortStpa(item.nomor_stpa) }}
                                 </td>
                                 <td class="px-4 py-3 text-sm text-gray-600">
                                     {{ formatDate(item.tanggal_laporan) }}
@@ -237,10 +256,10 @@ const stats = computed(() => {
                                     <div class="text-xs text-gray-500">{{ item.pelapor?.telepon || '' }}</div>
                                 </td>
                                 <td class="px-4 py-3 text-sm text-gray-600">
-                                    {{ item.jenis_kejahatan?.nama || '-' }}
+                                    {{ item.kategori_kejahatan?.nama || '-' }}
                                 </td>
                                 <td class="px-4 py-3 text-sm text-gray-800 font-medium">
-                                    {{ formatRupiah(item.total_kerugian) }}
+                                    {{ formatRupiah(getTotalKerugian(item)) }}
                                 </td>
                                 <td class="px-4 py-3">
                                     <span

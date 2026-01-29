@@ -2,11 +2,12 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Anggota;
-use App\Models\Jabatan;
-use App\Models\JenisKejahatan;
 use App\Models\KategoriKejahatan;
-use App\Models\Pangkat;
+use App\Models\MasterCountry;
+use App\Models\MasterPekerjaan;
+use App\Models\MasterPendidikan;
+use App\Models\MasterPlatform;
+use App\Models\User;
 use App\Models\Wilayah;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -95,6 +96,22 @@ class MasterDataController extends Controller
     }
 
     /**
+     * Get ALL kabupaten/kota in Indonesia (approx. 514 records)
+     * Used for Step 2 location selection (nation-wide)
+     */
+    public function kabupatenAll(): JsonResponse
+    {
+        $kabupaten = Wilayah::whereRaw('LENGTH(kode) = 5')
+            ->orderBy('nama')
+            ->get(['kode', 'nama']);
+
+        return response()->json([
+            'success' => true,
+            'data' => $kabupaten,
+        ]);
+    }
+
+    /**
      * Get kecamatan by kabupaten code
      */
     public function kecamatan(string $kodeKabupaten): JsonResponse
@@ -127,12 +144,24 @@ class MasterDataController extends Controller
     }
 
     /**
-     * Get all pangkat (police ranks)
+     * Pangkat options (static list since Pangkat table is removed)
+     */
+    private const PANGKAT_OPTIONS = [
+        'AKBP', 'Kompol', 'AKP', 'Iptu', 'Ipda', 'Aiptu', 'Aipda',
+        'Bripka', 'Brigadir', 'Briptu', 'Bripda', 'PNSD'
+    ];
+
+    /**
+     * Get all pangkat (police ranks) - now static
      */
     public function pangkat(): JsonResponse
     {
-        $pangkat = Pangkat::orderBy('urutan')
-            ->get(['id', 'kode', 'nama', 'urutan']);
+        $pangkat = collect(self::PANGKAT_OPTIONS)->map(fn($p, $i) => [
+            'id' => $i + 1,
+            'kode' => $p,
+            'nama' => $p,
+            'urutan' => $i + 1,
+        ]);
 
         return response()->json([
             'success' => true,
@@ -141,16 +170,14 @@ class MasterDataController extends Controller
     }
 
     /**
-     * Get all jabatan (police positions)
+     * Get all jabatan (police positions) - deprecated, returns empty
      */
     public function jabatan(): JsonResponse
     {
-        $jabatan = Jabatan::orderBy('nama')
-            ->get(['id', 'nama', 'deskripsi']);
-
+        // Jabatan is now a free text field in users table
         return response()->json([
             'success' => true,
-            'data' => $jabatan,
+            'data' => [],
         ]);
     }
 
@@ -170,71 +197,38 @@ class MasterDataController extends Controller
     }
 
     /**
-     * Get jenis kejahatan by kategori ID
-     */
-    public function jenisKejahatan(int $kategoriId): JsonResponse
-    {
-        $jenis = JenisKejahatan::active()
-            ->where('kategori_kejahatan_id', $kategoriId)
-            ->orderBy('nama')
-            ->get(['id', 'kategori_kejahatan_id', 'nama', 'deskripsi']);
-
-        return response()->json([
-            'success' => true,
-            'data' => $jenis,
-        ]);
-    }
-
-    /**
-     * Get all jenis kejahatan with kategori
-     */
-    public function jenisKejahatanAll(): JsonResponse
-    {
-        $jenis = JenisKejahatan::active()
-            ->with('kategori:id,nama')
-            ->orderBy('kategori_kejahatan_id')
-            ->orderBy('nama')
-            ->get(['id', 'kategori_kejahatan_id', 'nama', 'deskripsi']);
-
-        return response()->json([
-            'success' => true,
-            'data' => $jenis,
-        ]);
-    }
-
-    /**
      * Get all active anggota (police officers) for dropdown
+     * Now fetches from users table with petugas/admin_subdit roles
      */
     public function anggota(Request $request): JsonResponse
     {
-        $query = Anggota::active()
-            ->with(['pangkat:id,kode,nama', 'jabatan:id,nama']);
+        $query = User::active()
+            ->whereIn('role', ['petugas', 'admin_subdit']);
 
         // Optional filter by jabatan
-        if ($request->filled('jabatan_id')) {
-            $query->where('jabatan_id', $request->input('jabatan_id'));
+        if ($request->filled('jabatan')) {
+            $query->where('jabatan', $request->input('jabatan'));
         }
 
         // Optional search
         if ($request->filled('search')) {
             $search = $request->input('search');
             $query->where(function ($q) use ($search) {
-                $q->where('nama', 'like', "%{$search}%")
+                $q->where('name', 'like', "%{$search}%")
                     ->orWhere('nrp', 'like', "%{$search}%");
             });
         }
 
-        $anggota = $query->orderBy('nama')->get();
+        $anggota = $query->orderBy('name')->get();
 
         // Format for dropdown display
         $formatted = $anggota->map(fn($a) => [
             'id' => $a->id,
             'nrp' => $a->nrp,
-            'nama' => $a->nama,
-            'pangkat_kode' => $a->pangkat?->kode,
-            'pangkat_nama' => $a->pangkat?->nama,
-            'jabatan' => $a->jabatan?->nama,
-            'display_name' => $a->display_name,
+            'nama' => $a->name,
+            'pangkat' => $a->pangkat,
+            'jabatan' => $a->jabatan,
+            'display_name' => ($a->pangkat ? $a->pangkat . ' ' : '') . $a->name,
         ]);
 
         return response()->json([
@@ -244,22 +238,103 @@ class MasterDataController extends Controller
     }
 
     /**
-     * Get single anggota by ID
+     * Get single anggota by ID (now from users table)
      */
     public function anggotaShow(int $id): JsonResponse
     {
-        $anggota = Anggota::with(['pangkat', 'jabatan'])->findOrFail($id);
+        $user = User::findOrFail($id);
 
         return response()->json([
             'success' => true,
             'data' => [
-                'id' => $anggota->id,
-                'nrp' => $anggota->nrp,
-                'nama' => $anggota->nama,
-                'pangkat' => $anggota->pangkat,
-                'jabatan' => $anggota->jabatan,
-                'display_name' => $anggota->display_name,
+                'id' => $user->id,
+                'nrp' => $user->nrp,
+                'nama' => $user->name,
+                'pangkat' => $user->pangkat,
+                'jabatan' => $user->jabatan,
+                'display_name' => ($user->pangkat ? $user->pangkat . ' ' : '') . $user->name,
             ],
+        ]);
+    }
+
+    /**
+     * Get all pekerjaan (occupations) for dropdown
+     */
+    public function pekerjaan(): JsonResponse
+    {
+        $pekerjaan = MasterPekerjaan::orderBy('nama')
+            ->get(['id', 'nama']);
+
+        return response()->json([
+            'success' => true,
+            'data' => $pekerjaan,
+        ]);
+    }
+
+    /**
+     * Get all pendidikan (education levels) for dropdown
+     */
+    public function pendidikan(): JsonResponse
+    {
+        $pendidikan = MasterPendidikan::orderBy('id')
+            ->get(['id', 'nama']);
+
+        return response()->json([
+            'success' => true,
+            'data' => $pendidikan,
+        ]);
+    }
+
+    /**
+     * Get all platforms (flat list for frontend filtering)
+     * Used for identitas tersangka dependent dropdown
+     */
+    public function getPlatforms(Request $request): JsonResponse
+    {
+        $query = MasterPlatform::active()
+            ->orderBy('kategori')
+            ->orderBy('urutan');
+
+        // Optional: Filter by kategori if provided
+        if ($request->filled('kategori')) {
+            $query->byKategori($request->input('kategori'));
+        }
+
+        $platforms = $query->get(['id', 'kategori', 'nama_platform', 'urutan']);
+
+        return response()->json([
+            'success' => true,
+            'data' => $platforms,
+        ]);
+    }
+
+    /**
+     * Get all countries for WNA dropdown
+     */
+    public function getCountries(): JsonResponse
+    {
+        $countries = MasterCountry::orderBy('name')
+            ->get(['id', 'alpha_2', 'name', 'phone_code']);
+
+        return response()->json([
+            'success' => true,
+            'data' => $countries,
+        ]);
+    }
+
+    /**
+     * Get phone codes for phone input dropdown
+     * Returns countries with phone codes, ordered alphabetically by code
+     */
+    public function getPhoneCodes(): JsonResponse
+    {
+        $countries = MasterCountry::whereNotNull('phone_code')
+            ->orderBy('alpha_2', 'asc')
+            ->get(['phone_code', 'alpha_2', 'name']);
+
+        return response()->json([
+            'success' => true,
+            'data' => $countries,
         ]);
     }
 
@@ -275,31 +350,41 @@ class MasterDataController extends Controller
                 'provinsi' => Wilayah::whereRaw('LENGTH(kode) = 2')
                     ->orderBy('nama')
                     ->get(['kode', 'nama']),
-                'pangkat' => Pangkat::orderBy('urutan')
-                    ->get(['id', 'kode', 'nama']),
-                'jabatan' => Jabatan::orderBy('nama')
-                    ->get(['id', 'nama']),
+                'pangkat' => collect(self::PANGKAT_OPTIONS)->map(fn($p, $i) => [
+                    'id' => $i + 1,
+                    'kode' => $p,
+                    'nama' => $p,
+                ]),
                 'kategori_kejahatan' => KategoriKejahatan::active()
-                    ->orderBy('nama')
+                    ->orderBy('id') // Order by ID for consistent ordering
                     ->get(['id', 'nama']),
-                'anggota' => Anggota::active()
-                    ->with(['pangkat:id,kode,nama', 'jabatan:id,nama'])
-                    ->orderBy('nama')
+                'anggota' => User::active()
+                    ->whereIn('role', ['petugas', 'admin_subdit'])
+                    ->orderBy('name')
                     ->get()
                     ->map(fn($a) => [
                         'id' => $a->id,
-                        'nama' => $a->nama,
+                        'nama' => $a->name,
                         'nrp' => $a->nrp,
-                        'pangkat' => $a->pangkat ? [
-                            'id' => $a->pangkat->id,
-                            'kode' => $a->pangkat->kode,
-                            'nama' => $a->pangkat->nama,
-                        ] : null,
-                        'jabatan' => $a->jabatan ? [
-                            'id' => $a->jabatan->id,
-                            'nama' => $a->jabatan->nama,
-                        ] : null,
+                        'pangkat' => $a->pangkat,
+                        'jabatan' => $a->jabatan,
                     ]),
+                'pekerjaan' => MasterPekerjaan::orderBy('nama')
+                    ->get(['id', 'nama']),
+                'pendidikan' => MasterPendidikan::orderBy('id')
+                    ->get(['id', 'nama']),
+                // ALL Kabupaten/Kota in Indonesia (514 records) for Step 2 location
+                'kabupaten_all' => Wilayah::whereRaw('LENGTH(kode) = 5')
+                    ->orderBy('nama')
+                    ->get(['kode', 'nama']),
+                // Platforms for identitas tersangka (dependent dropdown)
+                'platforms' => MasterPlatform::active()
+                    ->orderBy('kategori')
+                    ->orderBy('urutan')
+                    ->get(['id', 'kategori', 'nama_platform']),
+                // Countries for WNA dropdown
+                'countries' => MasterCountry::orderBy('name')
+                    ->get(['id', 'alpha_2', 'name', 'phone_code']),
             ],
         ]);
     }

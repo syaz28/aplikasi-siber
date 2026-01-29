@@ -25,10 +25,11 @@ class DatabaseSeeder extends Seeder
             WilayahSeeder::class,
             PangkatSeeder::class,
             JabatanSeeder::class,
+            MasterPlatformSeeder::class, // Platform for identitas tersangka
+            MasterCountrySeeder::class,  // Countries and phone codes for WNA and phone input
             
             // Crime categories (no dependencies)
             KategoriKejahatanSeeder::class,
-            JenisKejahatanSeeder::class,  // depends on KategoriKejahatan
             
             // Personnel (depends on Pangkat, Jabatan)
             AnggotaSeeder::class,

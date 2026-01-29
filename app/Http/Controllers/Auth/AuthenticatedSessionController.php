@@ -33,7 +33,20 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
-        return redirect()->intended(route('laporan.create', absolute: false));
+        // Redirect berdasarkan role
+        $user = Auth::user();
+        
+        if ($user->role === 'admin') {
+            return redirect()->intended(route('admin.dashboard', absolute: false));
+        }
+        
+        // Pimpinan -> Executive Dashboard (khusus)
+        if ($user->role === 'pimpinan') {
+            return redirect()->intended(route('pimpinan.dashboard', absolute: false));
+        }
+        
+        // Petugas, Admin Subdit -> Sistem Pelaporan
+        return redirect()->intended(route('dashboard', absolute: false));
     }
 
     /**

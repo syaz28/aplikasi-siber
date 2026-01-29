@@ -11,7 +11,7 @@ class AppServiceProvider extends ServiceProvider
      * The path to the "home" route for authenticated users.
      * Used by authentication middleware for redirects.
      */
-    public const HOME = '/laporan/create';
+    public const HOME = '/dashboard';
 
     /**
      * Register any application services.

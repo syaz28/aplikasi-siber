@@ -4,7 +4,7 @@ import { formatUtils } from '@/Composables/useFormStorage';
 
 const props = defineProps({
     modelValue: {
-        type: String,
+        type: [String, Number], // Accept both String and Number
         default: ''
     },
     type: {
@@ -257,8 +257,10 @@ const computedHelpText = computed(() => {
 
 // Initialize display value
 watch(() => props.modelValue, (newVal) => {
-    displayValue.value = formatValue(newVal) || newVal;
-    validateValue(newVal);
+    // Normalize Number to String
+    const normalizedVal = typeof newVal === 'number' ? String(newVal) : newVal;
+    displayValue.value = formatValue(normalizedVal) || normalizedVal;
+    validateValue(normalizedVal);
 }, { immediate: true });
 
 // Max length for display (with formatting chars)

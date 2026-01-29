@@ -3,29 +3,33 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
 /**
- * User (Authentication)
+ * User (Authentication & Profile)
  * 
- * User sistem dengan link ke anggota kepolisian
- * Role: superadmin, admin, operator
+ * User sistem dengan semua data profil langsung (konsolidasi dari anggota)
+ * Role: admin, petugas, admin_subdit, pimpinan
  * 
  * @property int $id
- * @property int|null $anggota_id FK ke anggota (nullable untuk superadmin)
- * @property string $email
+ * @property string $name Nama lengkap
+ * @property string|null $nrp NRP Anggota
+ * @property string|null $pangkat Pangkat (AKBP, Kompol, AKP, dll)
+ * @property string|null $telepon Nomor telepon
+ * @property string|null $jabatan Jabatan fungsional
+ * @property string|null $email
  * @property \Carbon\Carbon|null $email_verified_at
  * @property string $password
- * @property string $role superadmin|admin|operator
- * @property string|null $remember_token
+ * @property string $role admin|petugas|admin_subdit|pimpinan
+ * @property int|null $subdit Subdit 1-3 (untuk admin_subdit/petugas)
+ * @property int|null $unit Unit 1-5 (untuk petugas)
  * @property bool $is_active Status aktif user
  * @property \Carbon\Carbon|null $created_at
  * @property \Carbon\Carbon|null $updated_at
  * 
- * @property-read Anggota|null $anggota
+ * @property-read \Illuminate\Database\Eloquent\Collection<Laporan> $laporanDiterima
  * @property-read \Illuminate\Database\Eloquent\Collection<Laporan> $laporanCreated
  * @property-read \Illuminate\Database\Eloquent\Collection<Laporan> $laporanUpdated
  */
@@ -40,11 +44,17 @@ class User extends Authenticatable
      * @var list<string>
      */
     protected $fillable = [
-        'anggota_id',
+        'name',
+        'nrp',
         'email',
         'password',
         'role',
+        'subdit',
+        'unit',
         'is_active',
+        'pangkat',
+        'telepon',
+        'jabatan',
     ];
 
     /**
@@ -65,10 +75,11 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
-            'anggota_id' => 'integer',
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
+            'subdit' => 'integer',
+            'unit' => 'integer',
         ];
     }
 
@@ -77,11 +88,11 @@ class User extends Authenticatable
     // ========================================
 
     /**
-     * Anggota yang terkait dengan user ini
+     * Laporan yang diterima/ditangani petugas ini
      */
-    public function anggota(): BelongsTo
+    public function laporanDiterima(): HasMany
     {
-        return $this->belongsTo(Anggota::class, 'anggota_id');
+        return $this->hasMany(Laporan::class, 'petugas_id');
     }
 
     /**
@@ -125,14 +136,6 @@ class User extends Authenticatable
     // ========================================
 
     /**
-     * Check if user is superadmin
-     */
-    public function isSuperadmin(): bool
-    {
-        return $this->role === 'superadmin';
-    }
-
-    /**
      * Check if user is admin
      */
     public function isAdmin(): bool
@@ -141,19 +144,71 @@ class User extends Authenticatable
     }
 
     /**
-     * Check if user is operator
+     * Check if user is petugas
      */
-    public function isOperator(): bool
+    public function isPetugas(): bool
     {
-        return $this->role === 'operator';
+        return $this->role === 'petugas';
     }
 
     /**
-     * Check if user has admin level access (superadmin or admin)
+     * Check if user is admin subdit
+     */
+    public function isAdminSubdit(): bool
+    {
+        return $this->role === 'admin_subdit';
+    }
+
+    /**
+     * Check if user is pimpinan
+     */
+    public function isPimpinan(): bool
+    {
+        return $this->role === 'pimpinan';
+    }
+
+    /**
+     * Check if user has admin level access (admin or admin_subdit)
      */
     public function hasAdminAccess(): bool
     {
-        return in_array($this->role, ['superadmin', 'admin']);
+        return in_array($this->role, ['admin', 'admin_subdit']);
+    }
+
+    /**
+     * Get role label for display
+     */
+    public function getRoleLabelAttribute(): string
+    {
+        return match($this->role) {
+            'admin' => 'Admin',
+            'petugas' => 'Petugas',
+            'admin_subdit' => 'Admin Subdit',
+            'pimpinan' => 'Pimpinan',
+            default => ucfirst($this->role ?? 'Unknown'),
+        };
+    }
+
+    /**
+     * Get subdit label for display
+     */
+    public function getSubditLabelAttribute(): ?string
+    {
+        if ($this->subdit === null) {
+            return null;
+        }
+        return "Subdit {$this->subdit}";
+    }
+
+    /**
+     * Get unit label for display
+     */
+    public function getUnitLabelAttribute(): ?string
+    {
+        if ($this->unit === null) {
+            return null;
+        }
+        return "Unit {$this->unit}";
     }
 
     // ========================================
@@ -161,18 +216,25 @@ class User extends Authenticatable
     // ========================================
 
     /**
-     * Get display name (from anggota or email)
+     * Get display name (from name field or email)
      */
-    public function getNameAttribute(): string
+    public function getDisplayNameAttribute(): string
     {
-        return $this->anggota?->nama ?? $this->email;
+        return $this->name ?? $this->email;
     }
 
     /**
      * Get full display name with rank if available
      */
-    public function getDisplayNameAttribute(): string
+    public function getFullDisplayNameAttribute(): string
     {
-        return $this->anggota?->display_name ?? $this->email;
+        $parts = [];
+        if ($this->name) {
+            $parts[] = $this->name;
+        }
+        if ($this->nrp) {
+            $parts[] = "({$this->nrp})";
+        }
+        return implode(' ', $parts) ?: $this->email;
     }
 }

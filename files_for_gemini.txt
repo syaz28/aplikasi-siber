@@ -1,0 +1,67 @@
+# FILES TO SEND TO GEMINI AI
+# Daftar file penting untuk context project Siber Jateng v2
+
+## PRIORITAS 1: MUST HAVE (13 files)
+1. .cursorrules
+2. README.md
+3. Aplikasi siber polda jateng/README.md
+4. Aplikasi siber polda jateng/erd_refactored.md
+5. app/Models/Laporan.php
+6. app/Models/Orang.php
+7. app/Models/Alamat.php
+8. app/Http/Controllers/LaporanController.php
+9. app/Services/StpaFpdiService.php
+10. resources/js/Pages/Dashboard.vue
+11. resources/js/Pages/Laporan/Create.vue
+12. resources/js/Components/SearchableSelect.vue
+13. routes/web.php
+
+## PRIORITAS 2: NICE TO HAVE (15 files)
+14. app/Models/Korban.php
+15. app/Models/Tersangka.php
+16. app/Models/Anggota.php
+17. app/Models/Wilayah.php
+18. app/Models/JenisKejahatan.php
+19. app/Http/Controllers/DashboardController.php
+20. app/Http/Controllers/MasterDataController.php
+21. app/Services/TerbilangService.php
+22. app/Helpers/StpaNumberGenerator.php
+23. resources/js/Pages/Laporan/Index.vue
+24. resources/js/Components/FormattedInput.vue
+25. resources/js/Components/TerbilangInput.vue
+26. resources/js/Layouts/SidebarLayout.vue
+27. package.json
+28. composer.json
+
+## PRIORITAS 3: DATABASE STRUCTURE (17 files)
+All files in: database/migrations/*.php
+
+## PROMPT UNTUK GEMINI:
+
+"Saya memiliki project Laravel 11 + Vue 3 + Inertia.js untuk sistem laporan kejahatan siber 
+kepolisian (POLDA JATENG). 
+
+Ini adalah sistem internal yang handle:
+- Data sensitif (NIK encrypted, no telepon)
+- Entry laporan dengan multi-step form
+- PDF generation (STPA - Surat Tanda Penerimaan Aduan)
+- Denormalized wilayah untuk statistik dashboard
+- Searchable dropdowns dengan 83K+ data wilayah
+
+Tech stack:
+- Backend: Laravel 11, PHP 8.2+, MySQL
+- Frontend: Vue 3 Composition API, Inertia.js (NO REST API)
+- Styling: TailwindCSS dengan custom colors (navy, tactical-accent)
+- PDF: FPDI/FPDF overlay method
+
+Saya attach file-file penting berikut:
+[list file yang dikirim]
+
+Tolong pahami struktur project ini dan bantu saya untuk development selanjutnya."
+
+## TIPS:
+- Kirim file secara bertahap (per kategori)
+- Mulai dengan .cursorrules (PALING PENTING!)
+- Lalu ERD & Models
+- Terakhir Controllers & Views
+- Jangan kirim semua sekaligus, bisa overload context

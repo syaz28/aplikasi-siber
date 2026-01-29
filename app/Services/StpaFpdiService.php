@@ -30,9 +30,8 @@ use Illuminate\Support\Facades\Log;
  * - korban.orang
  * - tersangka.orang
  * - tersangka.identitas
- * - jenisKejahatan.kategori
- * - petugas.pangkat
- * - petugas.jabatan
+ * - kategoriKejahatan
+ * - petugas (pangkat & jabatan are string fields on User)
  * - provinsiKejadian/kabupatenKejadian/kecamatanKejadian/kelurahanKejadian
  * 
  * @author Senior Backend Engineer - Laravel/FPDI Specialist
@@ -422,9 +421,9 @@ class StpaFpdiService
      */
     protected function drawAutoCrimeBox(Laporan $laporan): void
     {
-        $jenisKejahatan = $laporan->jenisKejahatan;
-        $crimeText = $jenisKejahatan 
-            ? strtoupper($jenisKejahatan->nama ?? 'TIDAK DIKETAHUI')
+        $kategoriKejahatan = $laporan->kategoriKejahatan;
+        $crimeText = $kategoriKejahatan 
+            ? strtoupper($kategoriKejahatan->nama ?? 'TIDAK DIKETAHUI')
             : 'TIDAK DIKETAHUI';
 
         $fullText = '" ' . $crimeText . ' "';

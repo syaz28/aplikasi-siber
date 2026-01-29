@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Helpers\StpaNumberGenerator;
 use App\Models\Alamat;
 use App\Models\IdentitasTersangka;
 use App\Models\Korban;
@@ -45,11 +46,10 @@ class LaporanController extends Controller
         // Tersangka dengan identitas digital
         'tersangka.orang',
         'tersangka.identitas',
-        // Jenis kejahatan dengan kategori
-        'jenisKejahatan.kategori',
-        // Petugas dengan pangkat dan jabatan
-        'petugas.pangkat',
-        'petugas.jabatan',
+        // Kategori kejahatan
+        'kategoriKejahatan',
+        // Petugas
+        'petugas',
         // Lampiran
         'lampiran',
         // Lokasi kejadian
@@ -69,10 +69,10 @@ class LaporanController extends Controller
     {
         $query = Laporan::with([
             'pelapor',
-            'korban.orang',
+            'korban', // Load korban with kerugian_nominal
             'tersangka',
-            'jenisKejahatan.kategori',
-            'petugas.pangkat',
+            'kategoriKejahatan',
+            'petugas',
         ]);
 
         // Search filters
@@ -88,8 +88,8 @@ class LaporanController extends Controller
             $query->where('status', $request->input('status'));
         }
 
-        if ($request->filled('jenis_kejahatan_id')) {
-            $query->where('jenis_kejahatan_id', $request->input('jenis_kejahatan_id'));
+        if ($request->filled('kategori_kejahatan_id')) {
+            $query->where('kategori_kejahatan_id', $request->input('kategori_kejahatan_id'));
         }
 
         if ($request->filled('tanggal_dari') && $request->filled('tanggal_sampai')) {
@@ -120,7 +120,7 @@ class LaporanController extends Controller
         // Return Inertia response for page render
         return Inertia::render('Laporan/Index', [
             'laporan' => $laporan,
-            'filters' => $request->only(['search', 'status', 'jenis_kejahatan_id', 'tanggal_dari', 'tanggal_sampai']),
+            'filters' => $request->only(['search', 'status', 'kategori_kejahatan_id', 'tanggal_dari', 'tanggal_sampai']),
             'statusOptions' => Laporan::getStatusOptions(),
         ]);
     }
@@ -150,43 +150,68 @@ class LaporanController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            // Step 1: Administrasi
-            'nomor_stpa' => 'nullable|string|max:50|unique:laporan,nomor_stpa',
-            'tanggal_laporan' => 'required|date',
-            'petugas_id' => 'required|exists:anggota,id',
+            // Note: nomor_stpa and tanggal_laporan are auto-generated
+            // petugas_id is auto-set from logged-in user's anggota_id (removed from validation)
             
-            // Step 2: Pelapor
+            // Step 1: Pelapor - Basic Info
             'pelapor' => 'required|array',
-            'pelapor.nik' => 'required|string|size:16',
+            'pelapor.kewarganegaraan' => 'required|in:WNI,WNA',
+            'pelapor.negara_asal' => 'required_if:pelapor.kewarganegaraan,WNA|nullable|string|max:50',
+            
+            // NIK validation: 16 digits for WNI, max 50 chars for WNA (passport)
+            'pelapor.nik' => $request->input('pelapor.kewarganegaraan') === 'WNI' 
+                ? 'required|string|size:16' 
+                : 'required|string|max:50',
+            
             'pelapor.nama' => 'required|string|max:100',
-            'pelapor.tempat_lahir' => 'required|string|max:100',
+            // tempat_lahir only required for WNI
+            'pelapor.tempat_lahir' => $request->input('pelapor.kewarganegaraan') === 'WNI' 
+                ? 'required|string|max:100' 
+                : 'nullable|string|max:100',
             'pelapor.tanggal_lahir' => 'required|date',
             'pelapor.jenis_kelamin' => 'required|in:Laki-laki,Perempuan',
             'pelapor.pekerjaan' => 'required|string|max:100',
-            'pelapor.telepon' => 'required|string|max:20',
-            'pelapor.email' => 'nullable|email|max:100',
+            'pelapor.pendidikan' => 'required|string|max:50', // Pendidikan terakhir
+            'pelapor.telepon' => 'required|string|max:30', // Allow longer for international format
             
-            // Alamat pelapor
-            'pelapor.alamat_ktp' => 'required|array',
-            'pelapor.alamat_ktp.kode_provinsi' => 'required|exists:wilayah,kode',
-            'pelapor.alamat_ktp.kode_kabupaten' => 'required|exists:wilayah,kode',
-            'pelapor.alamat_ktp.kode_kecamatan' => 'required|exists:wilayah,kode',
-            'pelapor.alamat_ktp.kode_kelurahan' => 'required|exists:wilayah,kode',
-            'pelapor.alamat_ktp.detail_alamat' => 'required|string',
+            // Alamat KTP - Region codes required only for WNI
+            'pelapor.alamat_ktp' => $request->input('pelapor.kewarganegaraan') === 'WNI' ? 'required|array' : 'nullable|array',
+            'pelapor.alamat_ktp.negara' => 'nullable|string|max:50',
+            'pelapor.alamat_ktp.kode_provinsi' => $request->input('pelapor.kewarganegaraan') === 'WNI' 
+                ? 'required|exists:wilayah,kode' 
+                : 'nullable',
+            'pelapor.alamat_ktp.kode_kabupaten' => $request->input('pelapor.kewarganegaraan') === 'WNI' 
+                ? 'required|exists:wilayah,kode' 
+                : 'nullable',
+            'pelapor.alamat_ktp.kode_kecamatan' => $request->input('pelapor.kewarganegaraan') === 'WNI' 
+                ? 'required|exists:wilayah,kode' 
+                : 'nullable',
+            'pelapor.alamat_ktp.kode_kelurahan' => $request->input('pelapor.kewarganegaraan') === 'WNI' 
+                ? 'required|exists:wilayah,kode' 
+                : 'nullable',
+            'pelapor.alamat_ktp.detail_alamat' => $request->input('pelapor.kewarganegaraan') === 'WNI' 
+                ? 'required|string' 
+                : 'nullable|string',
+            
+            // Alamat Domisili - Required for both WNI and WNA (current residence)
+            'pelapor.domisili_same_as_ktp' => 'nullable|boolean',
+            'pelapor.alamat_domisili' => 'required|array',
+            'pelapor.alamat_domisili.kode_provinsi' => 'required|exists:wilayah,kode',
+            'pelapor.alamat_domisili.kode_kabupaten' => 'required|exists:wilayah,kode',
+            'pelapor.alamat_domisili.kode_kecamatan' => 'required|exists:wilayah,kode',
+            'pelapor.alamat_domisili.kode_kelurahan' => 'required|exists:wilayah,kode',
+            'pelapor.alamat_domisili.detail_alamat' => 'required|string',
             
             'hubungan_pelapor' => 'required|in:diri_sendiri,keluarga,kuasa_hukum,teman,rekan_kerja,lainnya',
             
-            // Step 3: Laporan + Korban
-            'jenis_kejahatan_id' => 'required|exists:jenis_kejahatan,id',
+            // Step 2: Kejadian (Simplified)
+            'kategori_kejahatan_id' => 'required|exists:kategori_kejahatan,id',
             'waktu_kejadian' => 'required|date',
             'modus' => 'required|string',
             'catatan' => 'nullable|string',
             
-            // Lokasi kejadian (optional)
-            'kode_provinsi_kejadian' => 'nullable|exists:wilayah,kode',
-            'kode_kabupaten_kejadian' => 'nullable|exists:wilayah,kode',
-            'kode_kecamatan_kejadian' => 'nullable|exists:wilayah,kode',
-            'kode_kelurahan_kejadian' => 'nullable|exists:wilayah,kode',
+            // Lokasi kejadian (Simplified - Only Kabupaten Jateng)
+            'kode_kabupaten_kejadian' => 'required|exists:wilayah,kode',
             'alamat_kejadian' => 'nullable|string',
             
             // Korban (array of victims)
@@ -221,43 +246,73 @@ class LaporanController extends Controller
                 ['nik' => $validated['pelapor']['nik']],
                 [
                     'nama' => $validated['pelapor']['nama'],
-                    'tempat_lahir' => $validated['pelapor']['tempat_lahir'],
+                    'kewarganegaraan' => $validated['pelapor']['kewarganegaraan'],
+                    'negara_asal' => $validated['pelapor']['negara_asal'] ?? null,
+                    'tempat_lahir' => $validated['pelapor']['tempat_lahir'] ?? null, // Nullable for WNA
                     'tanggal_lahir' => $validated['pelapor']['tanggal_lahir'],
                     'jenis_kelamin' => $validated['pelapor']['jenis_kelamin'],
                     'pekerjaan' => $validated['pelapor']['pekerjaan'],
+                    'pendidikan' => $validated['pelapor']['pendidikan'],
                     'telepon' => $validated['pelapor']['telepon'],
-                    'email' => $validated['pelapor']['email'] ?? null,
                 ]
             );
 
-            // 2. Create/Update Alamat KTP for Pelapor
-            Alamat::updateOrCreate(
-                ['orang_id' => $pelapor->id, 'jenis_alamat' => 'ktp'],
-                [
-                    'kode_provinsi' => $validated['pelapor']['alamat_ktp']['kode_provinsi'],
-                    'kode_kabupaten' => $validated['pelapor']['alamat_ktp']['kode_kabupaten'],
-                    'kode_kecamatan' => $validated['pelapor']['alamat_ktp']['kode_kecamatan'],
-                    'kode_kelurahan' => $validated['pelapor']['alamat_ktp']['kode_kelurahan'],
-                    'detail_alamat' => $validated['pelapor']['alamat_ktp']['detail_alamat'],
-                ]
-            );
+            // 2. Create/Update Alamat for Pelapor
+            // For WNI: Save both Alamat KTP and Alamat Domisili
+            if ($validated['pelapor']['kewarganegaraan'] === 'WNI') {
+                // Save Alamat KTP
+                Alamat::updateOrCreate(
+                    ['orang_id' => $pelapor->id, 'jenis_alamat' => 'ktp'],
+                    [
+                        'negara' => 'Indonesia',
+                        'kode_provinsi' => $validated['pelapor']['alamat_ktp']['kode_provinsi'] ?? null,
+                        'kode_kabupaten' => $validated['pelapor']['alamat_ktp']['kode_kabupaten'] ?? null,
+                        'kode_kecamatan' => $validated['pelapor']['alamat_ktp']['kode_kecamatan'] ?? null,
+                        'kode_kelurahan' => $validated['pelapor']['alamat_ktp']['kode_kelurahan'] ?? null,
+                        'detail_alamat' => $validated['pelapor']['alamat_ktp']['detail_alamat'] ?? '',
+                    ]
+                );
+                
+                // Save Alamat Domisili (current residence)
+                Alamat::updateOrCreate(
+                    ['orang_id' => $pelapor->id, 'jenis_alamat' => 'domisili'],
+                    [
+                        'negara' => 'Indonesia',
+                        'kode_provinsi' => $validated['pelapor']['alamat_domisili']['kode_provinsi'] ?? null,
+                        'kode_kabupaten' => $validated['pelapor']['alamat_domisili']['kode_kabupaten'] ?? null,
+                        'kode_kecamatan' => $validated['pelapor']['alamat_domisili']['kode_kecamatan'] ?? null,
+                        'kode_kelurahan' => $validated['pelapor']['alamat_domisili']['kode_kelurahan'] ?? null,
+                        'detail_alamat' => $validated['pelapor']['alamat_domisili']['detail_alamat'] ?? '',
+                    ]
+                );
+            } else {
+                // For WNA: Save Alamat Domisili only (current residence in Indonesia)
+                Alamat::updateOrCreate(
+                    ['orang_id' => $pelapor->id, 'jenis_alamat' => 'domisili'],
+                    [
+                        'negara' => 'Indonesia', // WNA domisili is always in Indonesia
+                        'kode_provinsi' => $validated['pelapor']['alamat_domisili']['kode_provinsi'] ?? null,
+                        'kode_kabupaten' => $validated['pelapor']['alamat_domisili']['kode_kabupaten'] ?? null,
+                        'kode_kecamatan' => $validated['pelapor']['alamat_domisili']['kode_kecamatan'] ?? null,
+                        'kode_kelurahan' => $validated['pelapor']['alamat_domisili']['kode_kelurahan'] ?? null,
+                        'detail_alamat' => $validated['pelapor']['alamat_domisili']['detail_alamat'] ?? '',
+                    ]
+                );
+            }
 
             // 3. Create Laporan
             $laporan = Laporan::create([
-                'nomor_stpa' => $validated['nomor_stpa'] ?? null,
-                'tanggal_laporan' => $validated['tanggal_laporan'],
+                'nomor_stpa' => StpaNumberGenerator::generate(), // Auto-generated: STPA/601/IV/2025/Ditressiber
+                'tanggal_laporan' => now(), // Auto-set to current date
                 'pelapor_id' => $pelapor->id,
                 'hubungan_pelapor' => $validated['hubungan_pelapor'],
-                'petugas_id' => $validated['petugas_id'],
-                'jenis_kejahatan_id' => $validated['jenis_kejahatan_id'],
-                'kode_provinsi_kejadian' => $validated['kode_provinsi_kejadian'] ?? null,
-                'kode_kabupaten_kejadian' => $validated['kode_kabupaten_kejadian'] ?? null,
-                'kode_kecamatan_kejadian' => $validated['kode_kecamatan_kejadian'] ?? null,
-                'kode_kelurahan_kejadian' => $validated['kode_kelurahan_kejadian'] ?? null,
+                'petugas_id' => auth()->id(), // Auto-bound from logged-in officer (now uses User id)
+                'kategori_kejahatan_id' => $validated['kategori_kejahatan_id'],
+                'kode_kabupaten_kejadian' => $validated['kode_kabupaten_kejadian'],
                 'alamat_kejadian' => $validated['alamat_kejadian'] ?? null,
                 'waktu_kejadian' => $validated['waktu_kejadian'],
                 'modus' => $validated['modus'],
-                'status' => Laporan::STATUS_DRAFT,
+                'status' => Laporan::STATUS_PENYELIDIKAN,
                 'catatan' => $validated['catatan'] ?? null,
                 'created_by' => auth()->id(),
             ]);
@@ -278,14 +333,18 @@ class LaporanController extends Controller
                     ]
                 );
 
-                // Create Korban record
-                Korban::create([
-                    'laporan_id' => $laporan->id,
-                    'orang_id' => $orangKorban->id,
-                    'kerugian_nominal' => $korbanData['kerugian_nominal'],
-                    'kerugian_terbilang' => TerbilangService::convert($korbanData['kerugian_nominal']),
-                    'keterangan' => $korbanData['keterangan'] ?? null,
-                ]);
+                // Create Korban record (updateOrCreate to avoid duplicates)
+                Korban::updateOrCreate(
+                    [
+                        'laporan_id' => $laporan->id,
+                        'orang_id' => $orangKorban->id,
+                    ],
+                    [
+                        'kerugian_nominal' => $korbanData['kerugian_nominal'],
+                        'kerugian_terbilang' => TerbilangService::convert($korbanData['kerugian_nominal']),
+                        'keterangan' => $korbanData['keterangan'] ?? null,
+                    ]
+                );
             }
 
             // 5. Create Tersangka records (if provided)
@@ -370,9 +429,109 @@ class LaporanController extends Controller
             ]);
         }
 
+        // Detect recidivist suspects
+        $trackRecord = $this->detectRecidivist($laporan);
+
         return Inertia::render('Laporan/Show', [
             'laporan' => $laporan,
+            'trackRecord' => $trackRecord,
         ]);
+    }
+
+    /**
+     * Detect recidivist suspects by matching digital identities across cases.
+     * 
+     * @param Laporan $laporan
+     * @return array Track record grouped by suspect ID
+     */
+    private function detectRecidivist(Laporan $laporan): array
+    {
+        $trackRecord = [];
+        $currentLaporanId = $laporan->id;
+
+        // Jenis identitas yang perlu cocokkan platform juga
+        $needsPlatformMatch = ['sosmed', 'ewallet', 'rekening', 'marketplace', 'kripto'];
+
+        // Loop through each suspect
+        foreach ($laporan->tersangka as $tersangka) {
+            $matches = [];
+
+            // Loop through each identity of this suspect
+            foreach ($tersangka->identitas as $identitas) {
+                // Skip if nilai is empty
+                if (empty($identitas->nilai)) {
+                    continue;
+                }
+
+                // Build query for matching identities
+                $query = IdentitasTersangka::where('nilai', $identitas->nilai)
+                    ->where('id', '!=', $identitas->id)
+                    ->whereHas('tersangka', function ($q) use ($currentLaporanId) {
+                        $q->where('laporan_id', '!=', $currentLaporanId);
+                    });
+
+                // Untuk sosmed, ewallet, rekening, dll: harus cocok platform juga
+                if (in_array($identitas->jenis, $needsPlatformMatch) && !empty($identitas->platform)) {
+                    $query->where('platform', $identitas->platform);
+                }
+
+                $duplicates = $query->with(['tersangka.laporan' => function ($q) {
+                        $q->select('id', 'nomor_stpa', 'status', 'assigned_subdit', 'disposisi_unit', 'tanggal_laporan')
+                            ->with('kategoriKejahatan:id,nama');
+                    }])
+                    ->get();
+
+                // Add matches to the list
+                foreach ($duplicates as $duplicate) {
+                    $relatedLaporan = $duplicate->tersangka->laporan;
+                    
+                    if (!$relatedLaporan) continue;
+
+                    $matches[] = [
+                        'jenis_label' => $this->getJenisLabel($identitas->jenis),
+                        'nilai' => $identitas->nilai,
+                        'platform' => $identitas->platform,
+                        'laporan_id' => $relatedLaporan->id,
+                        'nomor_stpa' => $relatedLaporan->nomor_stpa ?: 'Belum ada STPA',
+                        'status' => $relatedLaporan->status,
+                        'subdit' => $relatedLaporan->assigned_subdit ? 'Subdit ' . $relatedLaporan->assigned_subdit : '-',
+                        'tanggal_laporan' => $relatedLaporan->tanggal_laporan?->format('d M Y'),
+                    ];
+                }
+            }
+
+            // Only add to trackRecord if there are matches
+            if (!empty($matches)) {
+                // Remove duplicates (same case might match multiple times)
+                $uniqueMatches = collect($matches)->unique(function ($item) {
+                    return $item['nilai'] . '-' . $item['laporan_id'];
+                })->values()->toArray();
+
+                $trackRecord[$tersangka->id] = $uniqueMatches;
+            }
+        }
+
+        return $trackRecord;
+    }
+
+    /**
+     * Get human-readable label for identity type.
+     */
+    private function getJenisLabel(string $jenis): string
+    {
+        $labels = [
+            'telepon' => 'Telepon',
+            'rekening' => 'Rekening Bank',
+            'sosmed' => 'Media Sosial',
+            'email' => 'Email',
+            'ewallet' => 'E-Wallet',
+            'kripto' => 'Kripto',
+            'marketplace' => 'Marketplace',
+            'website' => 'Website',
+            'lainnya' => 'Lainnya',
+        ];
+
+        return $labels[$jenis] ?? $jenis;
     }
 
     /**
@@ -402,8 +561,8 @@ class LaporanController extends Controller
             'nomor_stpa' => 'nullable|string|max:50|unique:laporan,nomor_stpa,' . $id,
             'tanggal_laporan' => 'sometimes|date',
             'hubungan_pelapor' => 'sometimes|in:diri_sendiri,keluarga,kuasa_hukum,teman,rekan_kerja,lainnya',
-            'petugas_id' => 'sometimes|exists:anggota,id',
-            'jenis_kejahatan_id' => 'sometimes|exists:jenis_kejahatan,id',
+            'petugas_id' => 'sometimes|exists:users,id',
+            'kategori_kejahatan_id' => 'sometimes|exists:kategori_kejahatan,id',
             'kode_provinsi_kejadian' => 'nullable|exists:wilayah,kode',
             'kode_kabupaten_kejadian' => 'nullable|exists:wilayah,kode',
             'kode_kecamatan_kejadian' => 'nullable|exists:wilayah,kode',
@@ -411,7 +570,7 @@ class LaporanController extends Controller
             'alamat_kejadian' => 'nullable|string',
             'waktu_kejadian' => 'sometimes|date',
             'modus' => 'sometimes|string',
-            'status' => 'sometimes|in:draft,submitted,verified,investigating,closed,rejected',
+            'status' => 'sometimes|in:Penyelidikan,Penyidikan,Tahap I,Tahap II,SP3,RJ,Diversi',
             'catatan' => 'nullable|string',
         ]);
 
@@ -450,7 +609,7 @@ class LaporanController extends Controller
             // Delete attachments from storage
             foreach ($laporan->lampiran as $lampiran) {
                 Storage::delete($lampiran->path_file);
-            }
+            }  
 
             // Delete laporan (cascades to korban, tersangka, identitas, lampiran)
             $laporan->delete();
@@ -521,7 +680,7 @@ class LaporanController extends Controller
             ->where('nilai', $validated['nilai'])
             ->with([
                 'tersangka.laporan' => fn($q) => $q->with([
-                    'jenisKejahatan.kategori',
+                    'kategoriKejahatan',
                     'pelapor',
                     'korban',
                 ]),
@@ -538,8 +697,7 @@ class LaporanController extends Controller
                 'laporan_id' => $laporan->id,
                 'nomor_stpa' => $laporan->nomor_stpa,
                 'tanggal_laporan' => $laporan->tanggal_laporan->format('Y-m-d'),
-                'jenis_kejahatan' => $laporan->jenisKejahatan->nama ?? '-',
-                'kategori' => $laporan->jenisKejahatan->kategori->nama ?? '-',
+                'kategori_kejahatan' => $laporan->kategoriKejahatan->nama ?? '-',
                 'nama_pelapor' => $laporan->pelapor->nama ?? '-',
                 'jumlah_korban' => $laporan->korban->count(),
                 'total_kerugian' => $laporan->korban->sum('kerugian_nominal'),
@@ -631,5 +789,32 @@ class LaporanController extends Controller
                 'message' => 'Gagal menghapus lampiran: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Assign laporan to a subdit (Admin only).
+     * 
+     * @param Request $request
+     * @param int $id Laporan ID
+     * @return \Illuminate\Http\RedirectResponse
+     */
+    public function assignSubdit(Request $request, int $id)
+    {
+        $request->validate([
+            'subdit' => 'required|integer|between:1,3',
+        ], [
+            'subdit.required' => 'Subdit wajib dipilih',
+            'subdit.between' => 'Subdit harus antara 1-3',
+        ]);
+
+        $laporan = Laporan::findOrFail($id);
+
+        $laporan->update([
+            'assigned_subdit' => $request->subdit,
+            'assigned_by' => auth()->id(),
+            'assigned_at' => now(),
+        ]);
+
+        return back()->with('success', "Laporan berhasil ditugaskan ke Subdit {$request->subdit}");
     }
 }

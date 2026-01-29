@@ -17,7 +17,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property \Carbon\Carbon|null $created_at
  * @property \Carbon\Carbon|null $updated_at
  * 
- * @property-read \Illuminate\Database\Eloquent\Collection<JenisKejahatan> $jenisKejahatan
+ * @property-read \Illuminate\Database\Eloquent\Collection<Laporan> $laporan
  */
 class KategoriKejahatan extends Model
 {
@@ -50,11 +50,11 @@ class KategoriKejahatan extends Model
     // ========================================
 
     /**
-     * Jenis kejahatan dalam kategori ini
+     * Laporan dalam kategori ini
      */
-    public function jenisKejahatan(): HasMany
+    public function laporan(): HasMany
     {
-        return $this->hasMany(JenisKejahatan::class, 'kategori_kejahatan_id');
+        return $this->hasMany(Laporan::class, 'kategori_kejahatan_id');
     }
 
     // ========================================

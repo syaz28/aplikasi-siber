@@ -85,7 +85,7 @@ class StoreLaporanRequest extends FormRequest
             // ==========================================
             // STEP 3: DATA KEJADIAN + KORBAN
             // ==========================================
-            'jenis_kejahatan_id' => 'required|integer|exists:jenis_kejahatan,id',
+            'kategori_kejahatan_id' => 'required|integer|exists:kategori_kejahatan,id',
             'waktu_kejadian' => 'required|date|before_or_equal:now',
             'modus' => 'required|string|min:10|max:5000',
             'catatan' => 'nullable|string|max:2000',
@@ -178,8 +178,8 @@ class StoreLaporanRequest extends FormRequest
             'pelapor.alamat_ktp.detail_alamat.required' => 'Detail alamat wajib diisi',
 
             // Kejadian
-            'jenis_kejahatan_id.required' => 'Jenis kejahatan wajib dipilih',
-            'jenis_kejahatan_id.exists' => 'Jenis kejahatan tidak ditemukan',
+            'kategori_kejahatan_id.required' => 'Kategori kejahatan wajib dipilih',
+            'kategori_kejahatan_id.exists' => 'Kategori kejahatan tidak ditemukan',
             'waktu_kejadian.required' => 'Waktu kejadian wajib diisi',
             'waktu_kejadian.before_or_equal' => 'Waktu kejadian tidak boleh di masa depan',
             'modus.required' => 'Modus operandi wajib diisi',

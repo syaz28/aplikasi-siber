@@ -41,6 +41,7 @@ class Alamat extends Model
     protected $fillable = [
         'orang_id',
         'jenis_alamat',
+        'negara',
         'kode_provinsi',
         'kode_kabupaten',
         'kode_kecamatan',

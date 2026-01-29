@@ -9,10 +9,10 @@ defineProps({
 const emit = defineEmits(['stepClick']);
 
 const steps = [
-    { id: 0, name: 'Administrasi', description: 'Nomor STPA & Petugas' },
-    { id: 1, name: 'Data Pelapor', description: 'Identitas, Kontak & Alamat' },
-    { id: 2, name: 'Laporan Kejadian', description: 'Detail & Data Korban' },
-    { id: 3, name: 'Tersangka & Modus', description: 'Identitas Digital & Kronologi' },
+    { id: 0, name: 'Data Pelapor', description: 'Identitas, Kontak & Alamat' },
+    { id: 1, name: 'Laporan Kejadian', description: 'Detail & Data Korban' },
+    { id: 2, name: 'Tersangka & Modus', description: 'Identitas Digital & Kronologi' },
+    { id: 3, name: 'Review & Submit', description: 'Verifikasi Data' },
 ];
 
 const handleStepClick = (stepId) => {

@@ -2,70 +2,42 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * Pangkat Kepolisian (Police Ranks)
+ * Pangkat Model
  * 
- * Urutan: 1 = tertinggi (Jenderal) hingga 16 = terendah (Bripda)
- * 
+ * Master data untuk pangkat anggota Kepolisian Republik Indonesia
+ *
  * @property int $id
- * @property string $kode Kode pangkat (AKBP, KOMPOL, dll)
- * @property string $nama Nama lengkap pangkat
- * @property int $urutan Urutan hierarki (1 = tertinggi)
- * @property \Carbon\Carbon|null $created_at
- * @property \Carbon\Carbon|null $updated_at
- * 
- * @property-read \Illuminate\Database\Eloquent\Collection<Anggota> $anggota
+ * @property string $kode Kode pangkat: AKBP, KOMPOL, AKP, dll
+ * @property int $urutan Urutan hierarki: 1=tertinggi
  */
 class Pangkat extends Model
 {
-    /**
-     * The table associated with the model.
-     */
+    use HasFactory;
+
     protected $table = 'pangkat';
 
-    /**
-     * The attributes that are mass assignable.
-     */
     protected $fillable = [
         'kode',
-        'nama',
         'urutan',
     ];
 
     /**
-     * The attributes that should be cast.
+     * Get all pangkat as dropdown options.
+     * 
+     * @return array
      */
-    protected function casts(): array
+    public static function getDropdownOptions(): array
     {
-        return [
-            'urutan' => 'integer',
-        ];
-    }
-
-    // ========================================
-    // RELATIONSHIPS
-    // ========================================
-
-    /**
-     * Anggota yang memiliki pangkat ini
-     */
-    public function anggota(): HasMany
-    {
-        return $this->hasMany(Anggota::class, 'pangkat_id');
-    }
-
-    // ========================================
-    // SCOPES
-    // ========================================
-
-    /**
-     * Order by hierarchy (highest rank first)
-     */
-    public function scopeByHierarchy($query)
-    {
-        return $query->orderBy('urutan', 'asc');
+        return self::orderBy('urutan', 'asc')
+            ->get()
+            ->map(fn ($p) => [
+                'value' => $p->kode,
+                'label' => $p->kode,
+            ])
+            ->toArray();
     }
 }

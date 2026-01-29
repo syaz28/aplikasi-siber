@@ -1,12 +1,14 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue';
 import { Head, router } from '@inertiajs/vue3';
-import axios from 'axios';
+// Use window.axios which has CSRF token configured in bootstrap.js
+const axios = window.axios;
 import SidebarLayout from '@/Layouts/SidebarLayout.vue';
 import StepIndicator from '@/Components/Laporan/StepIndicator.vue';
 import InputError from '@/Components/InputError.vue';
 import SearchableSelect from '@/Components/SearchableSelect.vue';
 import FormattedInput from '@/Components/FormattedInput.vue';
+import PhoneInput from '@/Components/PhoneInput.vue';
 import ReviewSummary from '@/Components/ReviewSummary.vue';
 import ToastContainer from '@/Components/ToastContainer.vue';
 import { useToast } from '@/Composables/useToast';
@@ -22,25 +24,29 @@ defineProps({
 const toast = useToast();
 const storage = useFormStorage();
 
-// Current step (0-4, step 4 = review)
+// Current step (0-3, step 3 = review) - Step 1 (Administrasi) removed
 const currentStep = ref(0);
 const isSubmitting = ref(false);
+const isSuccess = ref(false);
 const errors = ref({});
 const apiError = ref(null);
 const showDraftModal = ref(false);
 
-// Master data
 const masterData = reactive({
     provinsi: [],
     kategori_kejahatan: [],
     anggota: [],
+    pekerjaan: [], // Standardized occupation list for dropdown
+    pendidikan: [], // Standardized education level list for dropdown
+    kabupaten_all: [], // ALL Kabupaten/Kota Indonesia (514 records) for Step 2 location
+    platforms: [], // Platform list for identitas tersangka (dependent dropdown)
+    countries: [], // Countries for WNA dropdown (193 countries with phone codes)
 });
 
 // Dynamic dropdown data - Alamat KTP
 const kabupaten = ref([]);
 const kecamatan = ref([]);
 const kelurahan = ref([]);
-const jenisKejahatan = ref([]);
 const loadingWilayah = reactive({
     kabupaten: false,
     kecamatan: false,
@@ -57,25 +63,46 @@ const loadingWilayahKejadian = reactive({
     kelurahan: false,
 });
 
-// Form data with defaults
-const getDefaultForm = () => ({
-    // Step 0: Administrasi
-    nomor_stpa: '',
-    tanggal_laporan: new Date().toISOString().split('T')[0],
-    petugas_id: '',
+// Dynamic dropdown data - Alamat Domisili (for WNA's current residence in Indonesia)
+const kabupatenDomisili = ref([]);
+const kecamatanDomisili = ref([]);
+const kelurahanDomisili = ref([]);
+const loadingWilayahDomisili = reactive({
+    kabupaten: false,
+    kecamatan: false,
+    kelurahan: false,
+});
 
-    // Step 1: Pelapor
+// Form data with defaults (Step 1 Administrasi removed - auto-generated on backend)
+const getDefaultForm = () => ({
+    // Petugas (selected from dashboard, not shown in form)
+    petugas_id: '',
+    
+    // Step 0: Pelapor (was Step 1)
     hubungan_pelapor: 'diri_sendiri',
     pelapor: {
-        nik: '',
+        kewarganegaraan: 'WNI', // WNI or WNA
+        negara_asal: '', // For WNA only
+        nik: '', // NIK for WNI, Passport/KITAS for WNA
         nama: '',
         tempat_lahir: '',
         tanggal_lahir: '',
         jenis_kelamin: 'Laki-laki',
         pekerjaan: '',
+        pendidikan: '', // Pendidikan terakhir
         telepon: '',
-        email: '',
         alamat_ktp: {
+            negara: 'Indonesia', // Default for WNI
+            kode_provinsi: '',
+            kode_kabupaten: '',
+            kode_kecamatan: '',
+            kode_kelurahan: '',
+            detail_alamat: '',
+        },
+        // Flag for auto-sync: "Alamat Domisili sama dengan Alamat KTP"
+        domisili_same_as_ktp: false,
+        // Domisili saat ini di Indonesia (used for both WNI and WNA)
+        alamat_domisili: {
             kode_provinsi: '',
             kode_kabupaten: '',
             kode_kecamatan: '',
@@ -84,9 +111,8 @@ const getDefaultForm = () => ({
         },
     },
 
-    // Step 2: Kejadian & Korban
+    // Step 1: Kejadian & Korban (was Step 2)
     kategori_kejahatan_id: '',
-    jenis_kejahatan_id: '',
     waktu_kejadian: new Date().toISOString().slice(0, 16), // Default to now
     
     // Lokasi kejadian denormalized untuk dashboard/statistik
@@ -98,19 +124,22 @@ const getDefaultForm = () => ({
     
     korban: [{
         orang: {
+            kewarganegaraan: 'WNI', // Default WNI
+            negara_asal: '', // For WNA only
             nik: '',
             nama: '',
             tempat_lahir: '',
             tanggal_lahir: '',
             jenis_kelamin: 'Laki-laki',
             pekerjaan: '',
+            pendidikan: '', // Pendidikan terakhir
             telepon: '',
         },
-        kerugian_nominal: 0,
+        kerugian_nominal: '0', // String for FormattedInput component
         keterangan: '',
     }],
 
-    // Step 3: Tersangka & Modus
+    // Step 2: Tersangka & Modus (was Step 3)
     tersangka: [{
         catatan: '',
         identitas: [{ jenis: 'telepon', nilai: '', platform: '' }],
@@ -134,12 +163,31 @@ const identitasTypes = [
     { value: 'lainnya', label: 'Lainnya' },
 ];
 
+// Map identitas jenis to platform kategori
+const getKategoriPlatform = (jenisIdentitas) => {
+    const mapping = {
+        'telepon': 'Nomor Telepon',
+        'rekening': 'Rekening Bank',
+        'sosmed': 'Media Sosial',
+        'email': 'Email',
+        'ewallet': 'E-Wallet',
+        'lainnya': 'Lainnya',
+    };
+    return mapping[jenisIdentitas] || 'Lainnya';
+};
+
+// Get filtered platforms based on identitas jenis
+const getFilteredPlatforms = (jenisIdentitas) => {
+    const kategori = getKategoriPlatform(jenisIdentitas);
+    return masterData.platforms.filter(p => p.kategori === kategori);
+};
+
 // Formatted options for SearchableSelect
 // Format: PANGKAT NAMA (NRP) - tanpa jabatan karena BA PIKET sudah ada di surat
 const anggotaOptions = computed(() => {
     return masterData.anggota.map(a => ({
         ...a,
-        displayName: `${a.pangkat?.kode || ''} ${a.nama} (${a.nrp || ''})`.trim()
+        displayName: `${a.pangkat || ''} ${a.name} (${a.nrp || ''})`.trim()
     }));
 });
 
@@ -156,7 +204,6 @@ const validationErrors = reactive({
     'pelapor.nik': '',
     'pelapor.nama': '',
     'pelapor.telepon': '',
-    jenis_kejahatan_id: '',
     modus: '',
 });
 
@@ -166,16 +213,19 @@ const validateField = (field, value) => {
             validationErrors[field] = !value ? 'Petugas harus dipilih' : '';
             break;
         case 'pelapor.nik':
-            validationErrors[field] = value && value.length !== 16 ? 'NIK harus 16 digit' : '';
+            // Dynamic validation based on citizenship
+            if (form.pelapor.kewarganegaraan === 'WNI') {
+                validationErrors[field] = value && value.length !== 16 ? 'NIK harus 16 digit' : '';
+            } else {
+                // WNA: passport can be up to 50 chars
+                validationErrors[field] = value && value.length > 50 ? 'Maksimal 50 karakter' : '';
+            }
             break;
         case 'pelapor.nama':
             validationErrors[field] = !value ? 'Nama harus diisi' : '';
             break;
         case 'pelapor.telepon':
             validationErrors[field] = value && value.length < 10 ? 'Nomor telepon tidak valid' : '';
-            break;
-        case 'jenis_kejahatan_id':
-            validationErrors[field] = !value ? 'Jenis kejahatan harus dipilih' : '';
             break;
         case 'modus':
             validationErrors[field] = !value ? 'Modus operandi harus diisi' : '';
@@ -191,12 +241,26 @@ onMounted(async () => {
             masterData.provinsi = res.data.data.provinsi || [];
             masterData.kategori_kejahatan = res.data.data.kategori_kejahatan || [];
             masterData.anggota = res.data.data.anggota || [];
+            masterData.pekerjaan = res.data.data.pekerjaan || []; // Standardized occupation dropdown
+            masterData.pendidikan = res.data.data.pendidikan || []; // Standardized education dropdown
+            masterData.kabupaten_all = res.data.data.kabupaten_all || []; // ALL Kabupaten/Kota Indonesia (514 records)
+            masterData.platforms = res.data.data.platforms || []; // Platform list for identitas tersangka
+            masterData.countries = res.data.data.countries || []; // Countries for WNA dropdown (193 countries)
         }
         
-        // Load default petugas from localStorage
-        const defaultPetugas = storage.getDefaultPetugas();
-        if (defaultPetugas && !form.petugas_id) {
-            form.petugas_id = defaultPetugas;
+        // Get petugas_id from URL query params (from dashboard)
+        const urlParams = new URLSearchParams(window.location.search);
+        const petugasIdFromUrl = urlParams.get('petugas_id');
+        
+        if (petugasIdFromUrl) {
+            form.petugas_id = petugasIdFromUrl;
+            toast.success('Petugas penerima telah dipilih dari dashboard');
+        } else {
+            // Load default petugas from localStorage
+            const defaultPetugas = storage.getDefaultPetugas();
+            if (defaultPetugas && !form.petugas_id) {
+                form.petugas_id = defaultPetugas;
+            }
         }
         
         // Check for draft
@@ -222,6 +286,16 @@ const loadDraft = () => {
     const draft = storage.loadDraft();
     if (draft?.data) {
         Object.assign(form, draft.data);
+        
+        // Safety: Ensure kerugian_nominal is String (fix old drafts with Number type)
+        if (form.korban && Array.isArray(form.korban)) {
+            form.korban.forEach(k => {
+                if (typeof k.kerugian_nominal === 'number') {
+                    k.kerugian_nominal = String(k.kerugian_nominal);
+                }
+            });
+        }
+        
         toast.success('Draft berhasil dimuat');
     }
     showDraftModal.value = false;
@@ -263,14 +337,6 @@ const loadKelurahan = async (kodeKecamatan) => {
     finally { loadingWilayah.kelurahan = false; }
 };
 
-const loadJenisKejahatan = async (kategoriId) => {
-    if (!kategoriId) { jenisKejahatan.value = []; return; }
-    try {
-        const res = await axios.get(`/api/master/jenis-kejahatan/${kategoriId}`);
-        if (res.data.success) jenisKejahatan.value = res.data.data;
-    } catch (err) { console.error(err); }
-};
-
 // Loaders for Lokasi Kejadian
 const loadKabupatenKejadian = async (kodeProvinsi) => {
     if (!kodeProvinsi) { kabupatenKejadian.value = []; return; }
@@ -302,6 +368,37 @@ const loadKelurahanKejadian = async (kodeKecamatan) => {
     finally { loadingWilayahKejadian.kelurahan = false; }
 };
 
+// Loaders for Alamat Domisili (WNA's current residence in Indonesia)
+const loadKabupatenDomisili = async (kodeProvinsi) => {
+    if (!kodeProvinsi) { kabupatenDomisili.value = []; return; }
+    loadingWilayahDomisili.kabupaten = true;
+    try {
+        const res = await axios.get(`/api/master/kabupaten/${kodeProvinsi}`);
+        if (res.data.success) kabupatenDomisili.value = res.data.data;
+    } catch (err) { console.error(err); }
+    finally { loadingWilayahDomisili.kabupaten = false; }
+};
+
+const loadKecamatanDomisili = async (kodeKabupaten) => {
+    if (!kodeKabupaten) { kecamatanDomisili.value = []; return; }
+    loadingWilayahDomisili.kecamatan = true;
+    try {
+        const res = await axios.get(`/api/master/kecamatan/${kodeKabupaten}`);
+        if (res.data.success) kecamatanDomisili.value = res.data.data;
+    } catch (err) { console.error(err); }
+    finally { loadingWilayahDomisili.kecamatan = false; }
+};
+
+const loadKelurahanDomisili = async (kodeKecamatan) => {
+    if (!kodeKecamatan) { kelurahanDomisili.value = []; return; }
+    loadingWilayahDomisili.kelurahan = true;
+    try {
+        const res = await axios.get(`/api/master/kelurahan/${kodeKecamatan}`);
+        if (res.data.success) kelurahanDomisili.value = res.data.data;
+    } catch (err) { console.error(err); }
+    finally { loadingWilayahDomisili.kelurahan = false; }
+};
+
 // Watch for cascading changes
 watch(() => form.pelapor.alamat_ktp.kode_provinsi, (val) => {
     form.pelapor.alamat_ktp.kode_kabupaten = '';
@@ -322,11 +419,6 @@ watch(() => form.pelapor.alamat_ktp.kode_kabupaten, (val) => {
 watch(() => form.pelapor.alamat_ktp.kode_kecamatan, (val) => {
     form.pelapor.alamat_ktp.kode_kelurahan = '';
     loadKelurahan(val);
-});
-
-watch(() => form.kategori_kejahatan_id, (val) => {
-    form.jenis_kejahatan_id = '';
-    loadJenisKejahatan(val);
 });
 
 // Watchers for Lokasi Kejadian cascading
@@ -351,6 +443,109 @@ watch(() => form.kode_kecamatan_kejadian, (val) => {
     loadKelurahanKejadian(val);
 });
 
+// Watchers for Alamat Domisili cascading (WNA's current residence in Indonesia)
+// Flag to prevent cascade clear during auto-sync
+const isSyncingDomisili = ref(false);
+
+watch(() => form.pelapor.alamat_domisili.kode_provinsi, (val) => {
+    // Skip cascade clear if syncing from KTP
+    if (isSyncingDomisili.value) return;
+    
+    form.pelapor.alamat_domisili.kode_kabupaten = '';
+    form.pelapor.alamat_domisili.kode_kecamatan = '';
+    form.pelapor.alamat_domisili.kode_kelurahan = '';
+    kecamatanDomisili.value = [];
+    kelurahanDomisili.value = [];
+    loadKabupatenDomisili(val);
+});
+
+watch(() => form.pelapor.alamat_domisili.kode_kabupaten, (val) => {
+    // Skip cascade clear if syncing from KTP
+    if (isSyncingDomisili.value) return;
+    
+    form.pelapor.alamat_domisili.kode_kecamatan = '';
+    form.pelapor.alamat_domisili.kode_kelurahan = '';
+    kelurahanDomisili.value = [];
+    loadKecamatanDomisili(val);
+});
+
+watch(() => form.pelapor.alamat_domisili.kode_kecamatan, (val) => {
+    // Skip cascade clear if syncing from KTP
+    if (isSyncingDomisili.value) return;
+    
+    form.pelapor.alamat_domisili.kode_kelurahan = '';
+    loadKelurahanDomisili(val);
+});
+
+// ========================
+// WNI Domisili Auto-Sync Logic
+// ========================
+
+// Helper function to sync KTP -> Domisili
+const syncKtpToDomisili = () => {
+    if (form.pelapor.domisili_same_as_ktp && form.pelapor.kewarganegaraan === 'WNI') {
+        // Set flag to prevent cascade watchers from clearing child values
+        isSyncingDomisili.value = true;
+        
+        // Copy the dropdown options arrays FIRST (before setting values)
+        kabupatenDomisili.value = [...kabupaten.value];
+        kecamatanDomisili.value = [...kecamatan.value];
+        kelurahanDomisili.value = [...kelurahan.value];
+        
+        // Copy all address values from KTP to Domisili
+        form.pelapor.alamat_domisili.kode_provinsi = form.pelapor.alamat_ktp.kode_provinsi;
+        form.pelapor.alamat_domisili.kode_kabupaten = form.pelapor.alamat_ktp.kode_kabupaten;
+        form.pelapor.alamat_domisili.kode_kecamatan = form.pelapor.alamat_ktp.kode_kecamatan;
+        form.pelapor.alamat_domisili.kode_kelurahan = form.pelapor.alamat_ktp.kode_kelurahan;
+        form.pelapor.alamat_domisili.detail_alamat = form.pelapor.alamat_ktp.detail_alamat;
+        
+        // Reset flag after sync complete (use nextTick to ensure watchers have processed)
+        setTimeout(() => {
+            isSyncingDomisili.value = false;
+        }, 100);
+    }
+};
+
+// Watch: When checkbox is checked, copy KTP to Domisili
+watch(() => form.pelapor.domisili_same_as_ktp, (val) => {
+    if (val) {
+        syncKtpToDomisili();
+    }
+});
+
+// Watch: Auto-sync when any KTP field changes while checkbox is checked
+watch(
+    () => [
+        form.pelapor.alamat_ktp.kode_provinsi,
+        form.pelapor.alamat_ktp.kode_kabupaten,
+        form.pelapor.alamat_ktp.kode_kecamatan,
+        form.pelapor.alamat_ktp.kode_kelurahan,
+        form.pelapor.alamat_ktp.detail_alamat
+    ],
+    () => {
+        if (form.pelapor.domisili_same_as_ktp && form.pelapor.kewarganegaraan === 'WNI') {
+            syncKtpToDomisili();
+        }
+    }
+);
+
+// Auto-sync: When WNA changes negara_asal, update alamat_ktp.negara too
+watch(() => form.pelapor.negara_asal, (val) => {
+    if (form.pelapor.kewarganegaraan === 'WNA' && val) {
+        form.pelapor.alamat_ktp.negara = val;
+    }
+});
+
+// Auto-sync: Pelapor = Korban based on hubungan_pelapor
+watch(() => form.hubungan_pelapor, (val) => {
+    if (val === 'diri_sendiri') {
+        pelaporAdalahKorban.value = true;
+        toast.info('Mode: Melapor untuk diri sendiri');
+    } else {
+        pelaporAdalahKorban.value = false;
+    }
+});
+
 // Copy pelapor data to first korban
 watch(pelaporAdalahKorban, (val) => {
     if (val && form.korban.length > 0) {
@@ -363,22 +558,24 @@ watch(() => form.petugas_id, (v) => validateField('petugas_id', v));
 watch(() => form.pelapor.nik, (v) => validateField('pelapor.nik', v));
 watch(() => form.pelapor.nama, (v) => validateField('pelapor.nama', v));
 watch(() => form.pelapor.telepon, (v) => validateField('pelapor.telepon', v));
-watch(() => form.jenis_kejahatan_id, (v) => validateField('jenis_kejahatan_id', v));
 watch(() => form.modus, (v) => validateField('modus', v));
 
 // Korban management
 const addKorban = () => {
     form.korban.push({
         orang: {
+            kewarganegaraan: 'WNI', // Default WNI
+            negara_asal: '', // For WNA only
             nik: '',
             nama: '',
             tempat_lahir: '',
             tanggal_lahir: '',
             jenis_kelamin: 'Laki-laki',
             pekerjaan: '',
+            pendidikan: '', // Pendidikan terakhir
             telepon: '',
         },
-        kerugian_nominal: 0,
+        kerugian_nominal: '0', // String for FormattedInput component
         keterangan: '',
     });
 };
@@ -416,22 +613,31 @@ const removeIdentitas = (tersangkaIndex, identitasIndex) => {
 
 // Navigation
 const nextStep = () => {
+    // Safety: Normalize kerugian_nominal to String before validation
+    if (form.korban && Array.isArray(form.korban)) {
+        form.korban.forEach(k => {
+            if (typeof k.kerugian_nominal === 'number') {
+                k.kerugian_nominal = String(k.kerugian_nominal);
+            }
+        });
+    }
+    
     // Validate current step before proceeding
     let canProceed = true;
     
     if (currentStep.value === 0) {
-        validateField('petugas_id', form.petugas_id);
-        if (validationErrors.petugas_id) canProceed = false;
-    } else if (currentStep.value === 1) {
+        // Step 1: Pelapor validation
         validateField('pelapor.nama', form.pelapor.nama);
         validateField('pelapor.nik', form.pelapor.nik);
         if (validationErrors['pelapor.nama'] || validationErrors['pelapor.nik']) canProceed = false;
+    } else if (currentStep.value === 1) {
+        // Step 2: Kejadian & Korban validation - RELAXED (optional fields)
+        // No strict validation, allow user to proceed
+        canProceed = true;
     } else if (currentStep.value === 2) {
-        validateField('jenis_kejahatan_id', form.jenis_kejahatan_id);
-        if (validationErrors.jenis_kejahatan_id) canProceed = false;
-    } else if (currentStep.value === 3) {
-        validateField('modus', form.modus);
-        if (validationErrors.modus) canProceed = false;
+        // Step 3: Tersangka & Modus validation - RELAXED
+        // Backend will handle final validation
+        canProceed = true;
     }
     
     if (!canProceed) {
@@ -439,7 +645,7 @@ const nextStep = () => {
         return;
     }
     
-    if (currentStep.value < 4) currentStep.value++;
+    if (currentStep.value < 3) currentStep.value++; // Max step is 3 (review)
 };
 
 const prevStep = () => {
@@ -465,6 +671,21 @@ const submitForm = async () => {
         };
     }
 
+    // Safety: Normalize kerugian_nominal to String before submit
+    if (form.korban && Array.isArray(form.korban)) {
+        form.korban.forEach(k => {
+            if (typeof k.kerugian_nominal === 'number') {
+                k.kerugian_nominal = String(k.kerugian_nominal);
+            }
+        });
+    }
+
+    // Debug: Log form data before submit
+    console.log('=== FORM DATA BEFORE SUBMIT ===');
+    console.log('Petugas ID:', form.petugas_id);
+    console.log('Pelapor Alamat KTP:', form.pelapor.alamat_ktp);
+    console.log('Full Form:', JSON.stringify(form, null, 2));
+
     try {
         const response = await axios.post('/laporan', form);
         
@@ -477,26 +698,49 @@ const submitForm = async () => {
             
             toast.success('Laporan berhasil disimpan!');
             
-            // Open PDF in new tab
-            const laporanId = response.data.data.id;
-            window.open(`/laporan/${laporanId}/pdf`, '_blank');
+            // Show Success UI instead of opening PDF
+            isSuccess.value = true;
             
-            // Redirect to index after delay
+            // Auto redirect after 3 seconds
             setTimeout(() => {
                 router.visit('/laporan');
-            }, 1000);
+            }, 3000);
         }
     } catch (err) {
         console.error('Submit error:', err);
+        
+        // Parse validation errors
         if (err.response?.data?.errors) {
             errors.value = err.response.data.errors;
-        }
-        if (err.response?.data?.message) {
+            
+            // Log all validation errors to console for debugging
+            console.error('❌ VALIDATION ERRORS:', errors.value);
+            
+            // Create user-friendly error list
+            const errorList = Object.entries(errors.value).map(([field, messages]) => {
+                const message = Array.isArray(messages) ? messages[0] : messages;
+                return `• ${field}: ${message}`;
+            });
+            
+            // Display in alert box
+            apiError.value = `Mohon lengkapi/perbaiki data berikut:\n\n${errorList.join('\n')}`;
+            
+            // Show toast with first error
+            const firstError = errorList[0];
+            toast.error(`Validasi gagal! ${firstError}`);
+        } else if (err.response?.data?.message) {
             apiError.value = err.response.data.message;
+            toast.error(err.response.data.message);
+        } else {
+            apiError.value = 'Terjadi kesalahan saat menyimpan laporan. Silakan coba lagi.';
+            toast.error('Gagal menyimpan laporan. Periksa kembali data Anda.');
         }
-        toast.error('Gagal menyimpan laporan');
-        // Go back to form on error
-        currentStep.value = 3;
+        
+        // Scroll to top to show error message
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        
+        // Go back to first step (pelapor) so user can see and fix validation issues
+        currentStep.value = 0;
     } finally {
         isSubmitting.value = false;
     }
@@ -565,224 +809,468 @@ const handleKeydown = (event) => {
             <StepIndicator :current-step="Math.min(currentStep, 3)" @step-click="currentStep = $event" />
 
             <!-- Error Alert -->
-            <div v-if="apiError" class="mb-6 p-4 bg-tactical-danger/10 border border-tactical-danger rounded-lg text-tactical-danger flex items-center gap-3">
-                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                {{ apiError }}
+            <div v-if="apiError" class="mb-6 p-4 bg-red-50 border-2 border-red-500 rounded-lg text-red-700">
+                <div class="flex items-start gap-3">
+                    <svg class="w-6 h-6 flex-shrink-0 text-red-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div class="flex-1">
+                        <h4 class="font-bold text-red-800 mb-2">❌ Validasi Gagal</h4>
+                        <div class="text-sm whitespace-pre-line">{{ apiError }}</div>
+                    </div>
+                    <button @click="apiError = null" class="text-red-500 hover:text-red-700">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
             </div>
 
             <!-- Form Card -->
-            <div class="bg-white rounded-xl shadow-tactical border border-tactical-border overflow-hidden">
+            <div class="bg-white rounded-xl shadow-tactical border border-tactical-border overflow-visible">
                 
-                <!-- Step 0: Administrasi -->
-                <div v-show="currentStep === 0" class="p-6">
-                    <div class="bg-navy px-4 py-3 -mx-6 -mt-6 mb-6 border-l-4 border-tactical-accent">
-                        <h3 class="text-lg font-bold text-white">Step 1: Data Administrasi</h3>
+                <!-- Success View -->
+                <div v-if="isSuccess" class="p-12 text-center">
+                    <div class="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <svg class="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        </svg>
                     </div>
-
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Nomor STPA (Opsional)</label>
-                            <input
-                                type="text"
-                                v-model="form.nomor_stpa"
-                                class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
-                                placeholder="Kosongkan jika belum ada"
-                            />
-                            <p class="mt-1 text-xs text-gray-400">Akan di-generate otomatis jika kosong</p>
-                        </div>
-
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Tanggal Laporan <span class="text-red-500">*</span></label>
-                            <input
-                                type="date"
-                                v-model="form.tanggal_laporan"
-                                class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
-                            />
-                        </div>
-
-                        <div class="md:col-span-2">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Petugas Penerima <span class="text-red-500">*</span></label>
-                            <SearchableSelect
-                                v-model="form.petugas_id"
-                                :options="anggotaOptions"
-                                value-key="id"
-                                label-key="displayName"
-                                display-key="displayName"
-                                placeholder="-- Pilih Petugas --"
-                                search-placeholder="Ketik nama petugas..."
-                                :error="validationErrors.petugas_id"
-                            />
-                            <p v-if="storage.getDefaultPetugas() && form.petugas_id == storage.getDefaultPetugas()" class="mt-1 text-xs text-tactical-success flex items-center gap-1">
-                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                                Petugas default (akan diingat)
-                            </p>
-                        </div>
-                    </div>
+                    <h3 class="text-2xl font-bold text-navy mb-2">Laporan Berhasil Disimpan!</h3>
+                    <p class="text-gray-600 mb-8">Data laporan telah masuk ke sistem. Anda akan dialihkan ke halaman arsip dalam beberapa saat.</p>
+                    
+                    <button 
+                        @click="router.visit('/laporan')" 
+                        class="px-6 py-3 bg-tactical-accent text-white rounded-lg font-semibold hover:bg-tactical-accent/90 transition-colors"
+                    >
+                        Kembali ke Arsip Sekarang
+                    </button>
                 </div>
 
-                <!-- Step 1: Data Pelapor -->
-                <div v-show="currentStep === 1" class="p-6">
+                <!-- Form Steps View -->
+                <div v-else>
+                
+                <!-- Step 0: Data Pelapor (was Step 1) -->
+                <div v-show="currentStep === 0" class="p-6">
                     <div class="bg-navy px-4 py-3 -mx-6 -mt-6 mb-6 border-l-4 border-tactical-accent">
-                        <h3 class="text-lg font-bold text-white">Step 2: Data Pelapor</h3>
+                        <h3 class="text-lg font-bold text-white">Step 1: Data Pelapor</h3>
                     </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <FormattedInput
-                            v-model="form.pelapor.nik"
-                            type="nik"
-                            label="NIK"
-                            placeholder="Masukkan 16 digit NIK"
-                            required
-                            :error="validationErrors['pelapor.nik']"
-                        />
-
-                        <FormattedInput
-                            v-model="form.pelapor.nama"
-                            type="name"
-                            label="Nama Lengkap"
-                            placeholder="Masukkan nama lengkap"
-                            required
-                            :error="validationErrors['pelapor.nama']"
-                        />
-
-                        <FormattedInput
-                            v-model="form.pelapor.tempat_lahir"
-                            type="name"
-                            label="Tempat Lahir"
-                            placeholder="Contoh: Semarang"
-                            required
-                        />
-
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Tanggal Lahir <span class="text-red-500">*</span></label>
-                            <input
-                                type="date"
-                                v-model="form.pelapor.tanggal_lahir"
-                                class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
-                            />
+                    <!-- WNI/WNA Toggle (Compact) - Paling Atas -->
+                    <div class="mb-4 px-3 py-2 bg-gray-50 rounded-lg border border-gray-200 inline-block">
+                        <div class="flex items-center gap-4">
+                            <span class="text-xs font-medium text-gray-500">Kewarganegaraan:</span>
+                            <label class="flex items-center gap-1.5 cursor-pointer">
+                                <input
+                                    type="radio"
+                                    v-model="form.pelapor.kewarganegaraan"
+                                    value="WNI"
+                                    class="w-3.5 h-3.5 text-tactical-accent focus:ring-tactical-accent"
+                                />
+                                <span class="text-xs font-medium text-gray-700">🇮🇩 WNI</span>
+                            </label>
+                            <label class="flex items-center gap-1.5 cursor-pointer">
+                                <input
+                                    type="radio"
+                                    v-model="form.pelapor.kewarganegaraan"
+                                    value="WNA"
+                                    class="w-3.5 h-3.5 text-tactical-accent focus:ring-tactical-accent"
+                                />
+                                <span class="text-xs font-medium text-gray-700">🌍 WNA</span>
+                            </label>
                         </div>
+                    </div>
 
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Jenis Kelamin <span class="text-red-500">*</span></label>
-                            <select v-model="form.pelapor.jenis_kelamin" class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent">
-                                <option value="Laki-laki">Laki-laki</option>
-                                <option value="Perempuan">Perempuan</option>
-                            </select>
-                        </div>
+                    <!-- Kapasitas Pelapor (Hubungan Pelapor) -->
+                    <div class="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                        <label class="block text-sm font-bold text-navy mb-2">
+                            Kapasitas Pelapor (Status Hubungan) <span class="text-red-500">*</span>
+                        </label>
+                        <select
+                            v-model="form.hubungan_pelapor"
+                            class="w-full md:w-1/2 rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
+                        >
+                            <option v-for="(label, value) in hubunganPelaporOptions" :key="value" :value="value">
+                                {{ label }}
+                            </option>
+                        </select>
+                    </div>
 
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Pekerjaan <span class="text-red-500">*</span></label>
-                            <input
-                                type="text"
-                                v-model="form.pelapor.pekerjaan"
-                                class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
-                            />
-                        </div>
-
-                        <FormattedInput
-                            v-model="form.pelapor.telepon"
-                            type="phone"
-                            label="Telepon"
-                            placeholder="08xxxxxxxxxx"
-                            required
-                            :error="validationErrors['pelapor.telepon']"
-                        />
-
-                        <FormattedInput
-                            v-model="form.pelapor.email"
-                            type="email"
-                            label="Email"
-                            placeholder="email@contoh.com"
-                        />
-
-                        <!-- Alamat KTP -->
-                        <div class="md:col-span-2 border-t pt-4 mt-2">
-                            <h4 class="font-semibold text-navy mb-4">📍 Alamat KTP</h4>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <SearchableSelect
-                                    v-model="form.pelapor.alamat_ktp.kode_provinsi"
-                                    :options="masterData.provinsi"
-                                    value-key="kode"
-                                    label-key="nama"
-                                    placeholder="-- Pilih Provinsi --"
-                                    search-placeholder="Ketik nama provinsi..."
+                    <!-- IDENTITY SECTION -->
+                    <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                        <h4 class="font-semibold text-navy mb-4 flex items-center gap-2">
+                            👤 Data Identitas
+                        </h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <!-- Dynamic Identity Field: NIK for WNI, Passport for WNA -->
+                            <div v-if="form.pelapor.kewarganegaraan === 'WNI'">
+                                <FormattedInput
+                                    v-model="form.pelapor.nik"
+                                    type="nik"
+                                    label="NIK"
+                                    placeholder="Masukkan 16 digit NIK"
+                                    required
+                                    :error="validationErrors['pelapor.nik']"
                                 />
-
-                                <SearchableSelect
-                                    v-model="form.pelapor.alamat_ktp.kode_kabupaten"
-                                    :options="kabupaten"
-                                    value-key="kode"
-                                    label-key="nama"
-                                    placeholder="-- Pilih Kabupaten --"
-                                    search-placeholder="Ketik nama kabupaten..."
-                                    :loading="loadingWilayah.kabupaten"
-                                    :disabled="!form.pelapor.alamat_ktp.kode_provinsi"
-                                />
-
-                                <SearchableSelect
-                                    v-model="form.pelapor.alamat_ktp.kode_kecamatan"
-                                    :options="kecamatan"
-                                    value-key="kode"
-                                    label-key="nama"
-                                    placeholder="-- Pilih Kecamatan --"
-                                    search-placeholder="Ketik nama kecamatan..."
-                                    :loading="loadingWilayah.kecamatan"
-                                    :disabled="!form.pelapor.alamat_ktp.kode_kabupaten"
-                                />
-
-                                <SearchableSelect
-                                    v-model="form.pelapor.alamat_ktp.kode_kelurahan"
-                                    :options="kelurahan"
-                                    value-key="kode"
-                                    label-key="nama"
-                                    placeholder="-- Pilih Kelurahan --"
-                                    search-placeholder="Ketik nama kelurahan..."
-                                    :loading="loadingWilayah.kelurahan"
-                                    :disabled="!form.pelapor.alamat_ktp.kode_kecamatan"
-                                />
-
-                                <div class="md:col-span-2">
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Detail Alamat <span class="text-red-500">*</span></label>
-                                    <textarea
-                                        v-model="form.pelapor.alamat_ktp.detail_alamat"
-                                        rows="2"
-                                        class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
-                                        placeholder="Jalan, RT/RW, No. Rumah"
-                                    ></textarea>
-                                </div>
                             </div>
+                            <div v-else>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">
+                                    No. Paspor / ID Asing <span class="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    v-model="form.pelapor.nik"
+                                    class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
+                                    placeholder="Contoh: AB1234567"
+                                    maxlength="50"
+                                />
+                                <p class="mt-1 text-xs text-gray-400">Huruf dan angka (alphanumeric)</p>
+                                <p v-if="validationErrors['pelapor.nik']" class="mt-1 text-sm text-red-500">{{ validationErrors['pelapor.nik'] }}</p>
+                            </div>
+
+                            <!-- Negara Asal (WNA only) - SearchableSelect dropdown -->
+                            <div v-if="form.pelapor.kewarganegaraan === 'WNA'">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">
+                                    Negara Asal <span class="text-red-500">*</span>
+                                </label>
+                                <SearchableSelect
+                                    v-model="form.pelapor.negara_asal"
+                                    :options="masterData.countries"
+                                    value-key="name"
+                                    label-key="name"
+                                    placeholder="-- Pilih Negara --"
+                                    search-placeholder="Ketik untuk mencari negara..."
+                                />
+                            </div>
+
+                            <FormattedInput
+                                v-model="form.pelapor.nama"
+                                type="name"
+                                label="Nama Lengkap"
+                                placeholder="Masukkan nama lengkap"
+                                required
+                                :error="validationErrors['pelapor.nama']"
+                            />
+
+                            <!-- Tempat Lahir - WNI Only (Kabupaten/Kota Dropdown) -->
+                            <div v-if="form.pelapor.kewarganegaraan === 'WNI'">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Tempat Lahir <span class="text-red-500">*</span></label>
+                                <SearchableSelect
+                                    v-model="form.pelapor.tempat_lahir"
+                                    :options="masterData.kabupaten_all"
+                                    value-key="nama"
+                                    label-key="nama"
+                                    placeholder="-- Pilih Kota/Kabupaten --"
+                                    search-placeholder="Ketik untuk mencari..."
+                                />
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Tanggal Lahir <span class="text-red-500">*</span></label>
+                                <input
+                                    type="date"
+                                    v-model="form.pelapor.tanggal_lahir"
+                                    class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
+                                />
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Jenis Kelamin <span class="text-red-500">*</span></label>
+                                <select v-model="form.pelapor.jenis_kelamin" class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent">
+                                    <option value="Laki-laki">Laki-laki</option>
+                                    <option value="Perempuan">Perempuan</option>
+                                </select>
+                            </div>
+
+                            <!-- Pekerjaan Dropdown (Standardized) -->
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Pekerjaan <span class="text-red-500">*</span></label>
+                                <SearchableSelect
+                                    v-model="form.pelapor.pekerjaan"
+                                    :options="masterData.pekerjaan"
+                                    value-key="nama"
+                                    label-key="nama"
+                                    placeholder="-- Pilih Pekerjaan --"
+                                    search-placeholder="Ketik untuk mencari pekerjaan..."
+                                />
+                            </div>
+
+                            <!-- Phone Input: Split with Country Code Dropdown -->
+                            <PhoneInput
+                                v-model="form.pelapor.telepon"
+                                label="Telepon"
+                                required
+                                :error="validationErrors['pelapor.telepon']"
+                            />
+
+                            <!-- Pendidikan Terakhir Dropdown (Standardized) -->
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Pendidikan Terakhir <span class="text-red-500">*</span></label>
+                                <SearchableSelect
+                                    v-model="form.pelapor.pendidikan"
+                                    :options="masterData.pendidikan"
+                                    value-key="nama"
+                                    label-key="nama"
+                                    placeholder="-- Pilih Pendidikan --"
+                                    search-placeholder="Ketik untuk mencari..."
+                                />
+                            </div>
+                        </div>
+                    </div>
+                    <!-- END IDENTITY SECTION -->
+
+                    <!-- ADDRESS SECTION -->
+                    <div class="p-4 bg-gray-50 rounded-lg border border-gray-200 mt-4">
+                        <div class="md:col-span-2">
+                            <h4 class="font-semibold text-navy mb-4">
+                                📍 {{ form.pelapor.kewarganegaraan === 'WNI' ? 'Alamat KTP' : 'Alamat Asal (Negara Asal)' }}
+                            </h4>
+                            
+                            <!-- WNI: Show Region Dropdowns -->
+                            <template v-if="form.pelapor.kewarganegaraan === 'WNI'">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Provinsi <span class="text-red-500">*</span></label>
+                                        <SearchableSelect
+                                            v-model="form.pelapor.alamat_ktp.kode_provinsi"
+                                            :options="masterData.provinsi"
+                                            value-key="kode"
+                                            label-key="nama"
+                                            placeholder="-- Pilih Provinsi --"
+                                            search-placeholder="Ketik nama provinsi..."
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Kabupaten/Kota <span class="text-red-500">*</span></label>
+                                        <SearchableSelect
+                                            v-model="form.pelapor.alamat_ktp.kode_kabupaten"
+                                            :options="kabupaten"
+                                            value-key="kode"
+                                            label-key="nama"
+                                            placeholder="-- Pilih Kabupaten --"
+                                            search-placeholder="Ketik nama kabupaten..."
+                                            :loading="loadingWilayah.kabupaten"
+                                            :disabled="!form.pelapor.alamat_ktp.kode_provinsi"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Kecamatan <span class="text-red-500">*</span></label>
+                                        <SearchableSelect
+                                            v-model="form.pelapor.alamat_ktp.kode_kecamatan"
+                                            :options="kecamatan"
+                                            value-key="kode"
+                                            label-key="nama"
+                                            placeholder="-- Pilih Kecamatan --"
+                                            search-placeholder="Ketik nama kecamatan..."
+                                            :loading="loadingWilayah.kecamatan"
+                                            :disabled="!form.pelapor.alamat_ktp.kode_kabupaten"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Kelurahan/Desa <span class="text-red-500">*</span></label>
+                                        <SearchableSelect
+                                            v-model="form.pelapor.alamat_ktp.kode_kelurahan"
+                                            :options="kelurahan"
+                                            value-key="kode"
+                                            label-key="nama"
+                                            placeholder="-- Pilih Kelurahan --"
+                                            search-placeholder="Ketik nama kelurahan..."
+                                            :loading="loadingWilayah.kelurahan"
+                                            :disabled="!form.pelapor.alamat_ktp.kode_kecamatan"
+                                        />
+                                    </div>
+
+                                    <div class="md:col-span-2">
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Detail Alamat <span class="text-red-500">*</span></label>
+                                        <textarea
+                                            v-model="form.pelapor.alamat_ktp.detail_alamat"
+                                            rows="2"
+                                            class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
+                                            placeholder="Jalan, RT/RW, No. Rumah"
+                                        ></textarea>
+                                    </div>
+                                </div>
+                                
+                                <!-- WNI: Alamat Domisili Block -->
+                                <div class="p-4 bg-blue-50 rounded-lg border border-blue-200 mt-4">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <h5 class="font-medium text-blue-800 flex items-center gap-2">
+                                            🏠 Alamat Domisili (Tempat Tinggal Saat Ini)
+                                        </h5>
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                v-model="form.pelapor.domisili_same_as_ktp"
+                                                class="w-4 h-4 rounded text-tactical-accent focus:ring-tactical-accent"
+                                            />
+                                            <span class="text-sm text-blue-700 font-medium">Sama dengan Alamat KTP</span>
+                                        </label>
+                                    </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">Provinsi <span class="text-red-500">*</span></label>
+                                            <SearchableSelect
+                                                v-model="form.pelapor.alamat_domisili.kode_provinsi"
+                                                :options="masterData.provinsi"
+                                                value-key="kode"
+                                                label-key="nama"
+                                                placeholder="-- Pilih Provinsi --"
+                                                search-placeholder="Ketik nama provinsi..."
+                                                :disabled="form.pelapor.domisili_same_as_ktp"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">Kabupaten/Kota <span class="text-red-500">*</span></label>
+                                            <SearchableSelect
+                                                v-model="form.pelapor.alamat_domisili.kode_kabupaten"
+                                                :options="kabupatenDomisili"
+                                                value-key="kode"
+                                                label-key="nama"
+                                                placeholder="-- Pilih Kabupaten --"
+                                                search-placeholder="Ketik nama kabupaten..."
+                                                :loading="loadingWilayahDomisili.kabupaten"
+                                                :disabled="form.pelapor.domisili_same_as_ktp || !form.pelapor.alamat_domisili.kode_provinsi"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">Kecamatan <span class="text-red-500">*</span></label>
+                                            <SearchableSelect
+                                                v-model="form.pelapor.alamat_domisili.kode_kecamatan"
+                                                :options="kecamatanDomisili"
+                                                value-key="kode"
+                                                label-key="nama"
+                                                placeholder="-- Pilih Kecamatan --"
+                                                search-placeholder="Ketik nama kecamatan..."
+                                                :loading="loadingWilayahDomisili.kecamatan"
+                                                :disabled="form.pelapor.domisili_same_as_ktp || !form.pelapor.alamat_domisili.kode_kabupaten"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">Kelurahan/Desa <span class="text-red-500">*</span></label>
+                                            <SearchableSelect
+                                                v-model="form.pelapor.alamat_domisili.kode_kelurahan"
+                                                :options="kelurahanDomisili"
+                                                value-key="kode"
+                                                label-key="nama"
+                                                placeholder="-- Pilih Kelurahan --"
+                                                search-placeholder="Ketik nama kelurahan..."
+                                                :loading="loadingWilayahDomisili.kelurahan"
+                                                :disabled="form.pelapor.domisili_same_as_ktp || !form.pelapor.alamat_domisili.kode_kecamatan"
+                                            />
+                                        </div>
+
+                                        <div class="md:col-span-2">
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">Detail Alamat <span class="text-red-500">*</span></label>
+                                            <textarea
+                                                v-model="form.pelapor.alamat_domisili.detail_alamat"
+                                                rows="2"
+                                                class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
+                                                :class="{ 'bg-gray-100': form.pelapor.domisili_same_as_ktp }"
+                                                placeholder="Jalan, RT/RW, No. Rumah"
+                                                :readonly="form.pelapor.domisili_same_as_ktp"
+                                            ></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                            
+                            <!-- WNA: Only show Domisili di Indonesia (Simplified - No Overseas Address) -->
+                            <template v-else>
+                                <!-- WNA Domisili in Indonesia (Required) -->
+                                <div class="p-4 bg-green-50 rounded-lg border border-green-200 mt-4">
+                                    <h5 class="font-medium text-green-800 mb-2 flex items-center gap-2">
+                                        🏨 Domisili Saat Ini di Indonesia
+                                    </h5>
+                                    <p class="text-xs text-green-700 mb-4 flex items-center gap-1">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        Masukkan alamat tempat tinggal/hotel saat ini di Indonesia
+                                    </p>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <SearchableSelect
+                                            v-model="form.pelapor.alamat_domisili.kode_provinsi"
+                                            :options="masterData.provinsi"
+                                            value-key="kode"
+                                            label-key="nama"
+                                            placeholder="-- Pilih Provinsi --"
+                                            search-placeholder="Ketik nama provinsi..."
+                                        />
+
+                                        <SearchableSelect
+                                            v-model="form.pelapor.alamat_domisili.kode_kabupaten"
+                                            :options="kabupatenDomisili"
+                                            value-key="kode"
+                                            label-key="nama"
+                                            placeholder="-- Pilih Kabupaten/Kota --"
+                                            search-placeholder="Ketik nama kabupaten..."
+                                            :loading="loadingWilayahDomisili.kabupaten"
+                                            :disabled="!form.pelapor.alamat_domisili.kode_provinsi"
+                                        />
+
+                                        <SearchableSelect
+                                            v-model="form.pelapor.alamat_domisili.kode_kecamatan"
+                                            :options="kecamatanDomisili"
+                                            value-key="kode"
+                                            label-key="nama"
+                                            placeholder="-- Pilih Kecamatan --"
+                                            search-placeholder="Ketik nama kecamatan..."
+                                            :loading="loadingWilayahDomisili.kecamatan"
+                                            :disabled="!form.pelapor.alamat_domisili.kode_kabupaten"
+                                        />
+
+                                        <SearchableSelect
+                                            v-model="form.pelapor.alamat_domisili.kode_kelurahan"
+                                            :options="kelurahanDomisili"
+                                            value-key="kode"
+                                            label-key="nama"
+                                            placeholder="-- Pilih Kelurahan --"
+                                            search-placeholder="Ketik nama kelurahan..."
+                                            :loading="loadingWilayahDomisili.kelurahan"
+                                            :disabled="!form.pelapor.alamat_domisili.kode_kecamatan"
+                                        />
+
+                                        <div class="md:col-span-2">
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">Detail Alamat <span class="text-red-500">*</span></label>
+                                            <textarea
+                                                v-model="form.pelapor.alamat_domisili.detail_alamat"
+                                                rows="2"
+                                                class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
+                                                placeholder="Nama Hotel/Apartemen, Nomor Kamar, Jalan, RT/RW"
+                                            ></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
                         </div>
                     </div>
                 </div>
 
                 <!-- Step 2: Kejadian & Korban -->
-                <div v-show="currentStep === 2" class="p-6">
+                <div v-show="currentStep === 1" class="p-6">
                     <div class="bg-navy px-4 py-3 -mx-6 -mt-6 mb-6 border-l-4 border-tactical-accent">
-                        <h3 class="text-lg font-bold text-white">Step 3: Data Kejadian & Korban</h3>
+                        <h3 class="text-lg font-bold text-white">Step 2: Data Kejadian & Korban</h3>
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <SearchableSelect
-                            v-model="form.kategori_kejahatan_id"
-                            :options="kategoriOptions"
-                            value-key="id"
-                            label-key="nama"
-                            placeholder="-- Pilih Kategori --"
-                            search-placeholder="Ketik kategori..."
-                        />
-
-                        <SearchableSelect
-                            v-model="form.jenis_kejahatan_id"
-                            :options="jenisKejahatan"
-                            value-key="id"
-                            label-key="nama"
-                            placeholder="-- Pilih Jenis --"
-                            search-placeholder="Ketik jenis kejahatan..."
-                            :disabled="!form.kategori_kejahatan_id"
-                            :error="validationErrors.jenis_kejahatan_id"
-                        />
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Kategori Kejahatan <span class="text-red-500">*</span></label>
+                            <SearchableSelect
+                                v-model="form.kategori_kejahatan_id"
+                                :options="masterData.kategori_kejahatan"
+                                value-key="id"
+                                label-key="nama"
+                                placeholder="-- Pilih Kategori Kejahatan --"
+                                search-placeholder="Ketik untuk mencari..."
+                                required
+                            />
+                        </div>
 
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">Waktu Kejadian <span class="text-red-500">*</span></label>
@@ -790,20 +1278,24 @@ const handleKeydown = (event) => {
                                 type="datetime-local"
                                 v-model="form.waktu_kejadian"
                                 class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
-                            />
-                        </div>
-
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Waktu Laporan</label>
-                            <input
-                                type="date"
-                                v-model="form.tanggal_laporan"
-                                class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
+                                required
                             />
                         </div>
                     </div>
 
-                    <!-- Lokasi Kejadian Section (Denormalized) -->
+                    <!-- Info: Tanggal Laporan Auto-Generated -->
+                    <div class="mt-6 p-3 bg-green-50 rounded-lg border border-green-200 flex items-center gap-3">
+                        <svg class="w-5 h-5 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <div class="text-sm">
+                            <span class="font-semibold text-green-800">Tanggal Laporan:</span>
+                            <span class="text-green-700 ml-2">{{ new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' }) }}</span>
+                            <span class="text-green-600 text-xs ml-2">(Otomatis)</span>
+                        </div>
+                    </div>
+
+                    <!-- Lokasi Kejadian Section (ALL Indonesia) -->
                     <div class="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
                         <h4 class="font-semibold text-navy mb-4 flex items-center gap-2">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -811,61 +1303,36 @@ const handleKeydown = (event) => {
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                             </svg>
                             Lokasi Kejadian
-                            <span class="text-xs font-normal text-gray-500">(untuk statistik per wilayah)</span>
+                            <span class="text-xs font-normal text-gray-500">(Seluruh Indonesia)</span>
                         </h4>
                         
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <SearchableSelect
-                                v-model="form.kode_provinsi_kejadian"
-                                :options="masterData.provinsi"
-                                value-key="kode"
-                                label-key="nama"
-                                placeholder="-- Pilih Provinsi --"
-                                search-placeholder="Cari provinsi..."
-                            />
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">
+                                    Kabupaten/Kota Kejadian <span class="text-red-500">*</span>
+                                </label>
+                                <SearchableSelect
+                                    v-model="form.kode_kabupaten_kejadian"
+                                    :options="masterData.kabupaten_all"
+                                    value-key="kode"
+                                    label-key="nama"
+                                    placeholder="-- Pilih Kabupaten/Kota (Ketik untuk cari) --"
+                                    search-placeholder="Contoh: Jakarta Selatan, Semarang, Surabaya..."
+                                />
+                                <p class="mt-1 text-xs text-gray-500">
+                                    🔍 Ketik nama kota/kabupaten di seluruh Indonesia (514 pilihan)
+                                </p>
+                            </div>
 
-                            <SearchableSelect
-                                v-model="form.kode_kabupaten_kejadian"
-                                :options="kabupatenKejadian"
-                                value-key="kode"
-                                label-key="nama"
-                                placeholder="-- Pilih Kabupaten/Kota --"
-                                search-placeholder="Cari kabupaten/kota..."
-                                :disabled="!form.kode_provinsi_kejadian"
-                                :loading="loadingWilayahKejadian.kabupaten"
-                            />
-
-                            <SearchableSelect
-                                v-model="form.kode_kecamatan_kejadian"
-                                :options="kecamatanKejadian"
-                                value-key="kode"
-                                label-key="nama"
-                                placeholder="-- Pilih Kecamatan --"
-                                search-placeholder="Cari kecamatan..."
-                                :disabled="!form.kode_kabupaten_kejadian"
-                                :loading="loadingWilayahKejadian.kecamatan"
-                            />
-
-                            <SearchableSelect
-                                v-model="form.kode_kelurahan_kejadian"
-                                :options="kelurahanKejadian"
-                                value-key="kode"
-                                label-key="nama"
-                                placeholder="-- Pilih Kelurahan --"
-                                search-placeholder="Cari kelurahan..."
-                                :disabled="!form.kode_kecamatan_kejadian"
-                                :loading="loadingWilayahKejadian.kelurahan"
-                            />
-                        </div>
-
-                        <div class="mt-4">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Detail Alamat Kejadian</label>
-                            <input
-                                type="text"
-                                v-model="form.alamat_kejadian"
-                                class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
-                                placeholder="Jl. ..., RT/RW, No. ..."
-                            />
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Detail Alamat Kejadian</label>
+                                <input
+                                    type="text"
+                                    v-model="form.alamat_kejadian"
+                                    class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
+                                    placeholder="Jl. ..., RT/RW, No. ..., Kecamatan, Kelurahan"
+                                />
+                            </div>
                         </div>
                     </div>
 
@@ -904,26 +1371,121 @@ const handleKeydown = (event) => {
                                 Data korban akan diambil dari data pelapor
                             </div>
 
-                            <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                                <FormattedInput v-model="korban.orang.nik" type="nik" label="NIK Korban" />
-                                <FormattedInput v-model="korban.orang.nama" type="name" label="Nama Korban" placeholder="Nama lengkap korban" />
-                                <FormattedInput v-model="korban.orang.tempat_lahir" type="name" label="Tempat Lahir" placeholder="Contoh: Semarang" />
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Tanggal Lahir</label>
-                                    <input type="date" v-model="korban.orang.tanggal_lahir" class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent" />
+                            <div v-else class="space-y-4">
+                                <!-- WNI/WNA Toggle (Compact) -->
+                                <div class="px-3 py-2 bg-gray-100 rounded-lg border border-gray-300 inline-block">
+                                    <div class="flex items-center gap-4">
+                                        <span class="text-xs font-medium text-gray-600">Kewarganegaraan:</span>
+                                        <label class="flex items-center gap-1.5 cursor-pointer">
+                                            <input
+                                                type="radio"
+                                                v-model="korban.orang.kewarganegaraan"
+                                                value="WNI"
+                                                class="w-3.5 h-3.5 text-tactical-accent focus:ring-tactical-accent"
+                                            />
+                                            <span class="text-xs font-medium text-gray-700">🇮🇩 WNI</span>
+                                        </label>
+                                        <label class="flex items-center gap-1.5 cursor-pointer">
+                                            <input
+                                                type="radio"
+                                                v-model="korban.orang.kewarganegaraan"
+                                                value="WNA"
+                                                class="w-3.5 h-3.5 text-tactical-accent focus:ring-tactical-accent"
+                                            />
+                                            <span class="text-xs font-medium text-gray-700">🌍 WNA</span>
+                                        </label>
+                                    </div>
                                 </div>
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Jenis Kelamin</label>
-                                    <select v-model="korban.orang.jenis_kelamin" class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent">
-                                        <option value="Laki-laki">Laki-laki</option>
-                                        <option value="Perempuan">Perempuan</option>
-                                    </select>
+
+                                <!-- Negara Asal (Only for WNA) -->
+                                <div v-if="korban.orang.kewarganegaraan === 'WNA'">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                                        Negara Asal <span class="text-red-500">*</span>
+                                    </label>
+                                    <SearchableSelect
+                                        v-model="korban.orang.negara_asal"
+                                        :options="masterData.countries"
+                                        value-key="name"
+                                        label-key="name"
+                                        placeholder="-- Pilih Negara Asal --"
+                                        search-placeholder="Ketik nama negara..."
+                                    />
                                 </div>
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Pekerjaan</label>
-                                    <input type="text" v-model="korban.orang.pekerjaan" class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent" />
+
+                                <!-- Form Fields Grid -->
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <FormattedInput 
+                                        v-model="korban.orang.nik" 
+                                        type="nik" 
+                                        :label="korban.orang.kewarganegaraan === 'WNA' ? 'Passport / KITAS' : 'NIK Korban'"
+                                    />
+                                    <FormattedInput 
+                                        v-model="korban.orang.nama" 
+                                        type="name" 
+                                        label="Nama Korban" 
+                                        placeholder="Nama lengkap korban" 
+                                    />
+                                    
+                                    <!-- Tempat Lahir - Only for WNI (Kabupaten/Kota Dropdown) -->
+                                    <div v-if="korban.orang.kewarganegaraan === 'WNI'">
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">
+                                            Tempat Lahir <span class="text-red-500">*</span>
+                                        </label>
+                                        <SearchableSelect
+                                            v-model="korban.orang.tempat_lahir"
+                                            :options="masterData.kabupaten_all"
+                                            value-key="nama"
+                                            label-key="nama"
+                                            placeholder="-- Pilih Kota/Kabupaten --"
+                                            search-placeholder="Ketik untuk mencari kota..."
+                                        />
+                                        <p class="mt-1 text-xs text-gray-500">
+                                            Pilih kota/kabupaten tempat lahir di Indonesia
+                                        </p>
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Tanggal Lahir</label>
+                                        <input 
+                                            type="date" 
+                                            v-model="korban.orang.tanggal_lahir" 
+                                            class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent" 
+                                        />
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Jenis Kelamin</label>
+                                        <select 
+                                            v-model="korban.orang.jenis_kelamin" 
+                                            class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
+                                        >
+                                            <option value="Laki-laki">Laki-laki</option>
+                                            <option value="Perempuan">Perempuan</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Pekerjaan</label>
+                                        <SearchableSelect
+                                            v-model="korban.orang.pekerjaan"
+                                            :options="masterData.pekerjaan"
+                                            value-key="nama"
+                                            label-key="nama"
+                                            placeholder="-- Pilih Pekerjaan --"
+                                            search-placeholder="Ketik untuk mencari pekerjaan..."
+                                        />
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Pendidikan Terakhir</label>
+                                        <SearchableSelect
+                                            v-model="korban.orang.pendidikan"
+                                            :options="masterData.pendidikan"
+                                            value-key="nama"
+                                            label-key="nama"
+                                            placeholder="-- Pilih Pendidikan --"
+                                            search-placeholder="Ketik untuk mencari..."
+                                        />
+                                    </div>
+                                    <PhoneInput v-model="korban.orang.telepon" label="Telepon" />
                                 </div>
-                                <FormattedInput v-model="korban.orang.telepon" type="phone" label="Telepon" placeholder="08xxxxxxxxxx" />
                             </div>
 
                             <FormattedInput
@@ -949,9 +1511,9 @@ const handleKeydown = (event) => {
                 </div>
 
                 <!-- Step 3: Tersangka & Modus -->
-                <div v-show="currentStep === 3" class="p-6">
+                <div v-show="currentStep === 2" class="p-6">
                     <div class="bg-navy px-4 py-3 -mx-6 -mt-6 mb-6 border-l-4 border-tactical-accent">
-                        <h3 class="text-lg font-bold text-white">Step 4: Data Tersangka & Modus Operandi</h3>
+                        <h3 class="text-lg font-bold text-white">Step 3: Data Tersangka & Modus Operandi</h3>
                     </div>
 
                     <!-- Tersangka Section -->
@@ -961,7 +1523,7 @@ const handleKeydown = (event) => {
                             <span class="text-sm font-normal text-gray-500">({{ form.tersangka.length }} tersangka)</span>
                         </h4>
 
-                        <div v-for="(tersangka, tIndex) in form.tersangka" :key="tIndex" class="mb-6 p-4 bg-red-50 rounded-lg border border-red-200">
+                        <div v-for="(tersangka, tIndex) in form.tersangka" :key="tIndex" class="mb-6 p-4 bg-red-50 rounded-lg border border-red-200 overflow-visible relative">
                             <div class="flex justify-between items-center mb-4">
                                 <span class="font-medium text-tactical-danger">Tersangka {{ tIndex + 1 }}</span>
                                 <button
@@ -987,13 +1549,12 @@ const handleKeydown = (event) => {
                                         </option>
                                     </select>
                                     <!-- Dynamic input based on type -->
-                                    <FormattedInput
+                                    <PhoneInput
                                         v-if="identitas.jenis === 'telepon'"
                                         v-model="identitas.nilai"
-                                        type="phone"
-                                        placeholder="08xxxxxxxxxx"
+                                        :label="null"
+                                        placeholder=""
                                         class="flex-1 min-w-0"
-                                        :show-valid-icon="false"
                                     />
                                     <FormattedInput
                                         v-else-if="identitas.jenis === 'email'"
@@ -1012,18 +1573,30 @@ const handleKeydown = (event) => {
                                         :show-valid-icon="false"
                                     />
                                     <input
+                                        v-else-if="identitas.jenis === 'ewallet'"
+                                        type="text"
+                                        v-model="identitas.nilai"
+                                        class="flex-1 min-w-0 rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent text-sm"
+                                        placeholder=""
+                                    />
+                                    <input
                                         v-else
                                         type="text"
                                         v-model="identitas.nilai"
                                         class="flex-1 min-w-0 rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent text-sm"
-                                        placeholder="Username/ID"
+                                        placeholder="Username/ Link Profil"
                                     />
-                                    <input
-                                        type="text"
-                                        v-model="identitas.platform"
-                                        class="w-full sm:w-32 rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent text-sm"
-                                        :placeholder="identitas.jenis === 'rekening' ? 'Nama Bank' : 'Platform'"
-                                    />
+                                    <div class="w-full sm:w-48 flex-shrink-0">
+                                        <SearchableSelect
+                                            v-model="identitas.platform"
+                                            :options="getFilteredPlatforms(identitas.jenis)"
+                                            value-key="nama_platform"
+                                            label-key="nama_platform"
+                                            :placeholder="identitas.jenis === 'rekening' ? 'Pilih Bank' : 'Pilih Platform'"
+                                            :search-placeholder="'Ketik untuk cari...'"
+                                            class="text-sm"
+                                        />
+                                    </div>
                                     <button
                                         v-if="tersangka.identitas.length > 1"
                                         type="button"
@@ -1089,17 +1662,17 @@ const handleKeydown = (event) => {
                 </div>
 
                 <!-- Step 4: Review -->
-                <div v-show="currentStep === 4" class="p-6">
+                <div v-show="currentStep === 3" class="p-6">
                     <ReviewSummary
                         :form="form"
-                        :master-data="{ anggota: masterData.anggota, jenisKejahatan }"
-                        @back="currentStep = 3"
+                        :master-data="masterData"
+                        @back="currentStep = 2"
                         @confirm="submitForm"
                     />
                 </div>
 
                 <!-- Navigation Buttons (except on review step) -->
-                <div v-if="currentStep < 4" class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-between">
+                <div v-if="currentStep < 3" class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-between">
                     <button
                         v-if="currentStep > 0"
                         type="button"
@@ -1118,12 +1691,14 @@ const handleKeydown = (event) => {
                         @click="nextStep"
                         class="px-6 py-3 bg-tactical-accent text-white rounded-lg font-semibold hover:bg-blue-600 transition-colors flex items-center gap-2 min-h-[48px]"
                     >
-                        {{ currentStep === 3 ? 'Review & Submit' : 'Selanjutnya' }}
+                        {{ currentStep === 2 ? 'Review & Submit' : 'Selanjutnya' }}
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
                         </svg>
                     </button>
                 </div>
+
+                </div><!-- End v-else (Form Steps View) -->
 
                 <!-- Loading Overlay -->
                 <div v-if="isSubmitting" class="absolute inset-0 bg-white/80 flex items-center justify-center z-50 rounded-xl">

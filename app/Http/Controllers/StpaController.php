@@ -26,9 +26,8 @@ class StpaController extends Controller
         'pelapor.alamatKtp.kelurahan',
         'korban.orang',
         'tersangka.identitas',
-        'jenisKejahatan.kategori',
-        'petugas.pangkat',
-        'petugas.jabatan',
+        'kategoriKejahatan',
+        'petugas',
     ];
 
     /**

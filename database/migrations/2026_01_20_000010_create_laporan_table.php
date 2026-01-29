@@ -42,12 +42,12 @@ return new class extends Migration
                 ->onUpdate('cascade')
                 ->comment('FK ke anggota (petugas penerima)');
             
-            // Jenis kejahatan
-            $table->foreignId('jenis_kejahatan_id')
-                ->constrained('jenis_kejahatan')
+            // Kategori kejahatan
+            $table->foreignId('kategori_kejahatan_id')
+                ->constrained('kategori_kejahatan')
                 ->onDelete('restrict')
                 ->onUpdate('cascade')
-                ->comment('FK ke jenis_kejahatan');
+                ->comment('FK ke kategori_kejahatan');
             
             // Lokasi kejadian dengan wilayah denormalized (nullable - bisa online crime tanpa lokasi fisik)
             $table->string('kode_provinsi_kejadian', 2)->nullable()->comment('Contoh: 33');
@@ -83,7 +83,7 @@ return new class extends Migration
             // Indexes untuk filtering dan searching
             $table->index('pelapor_id', 'laporan_pelapor_id_index');
             $table->index('petugas_id', 'laporan_petugas_id_index');
-            $table->index('jenis_kejahatan_id', 'laporan_jenis_kejahatan_id_index');
+            $table->index('kategori_kejahatan_id', 'laporan_kategori_kejahatan_id_index');
             $table->index('kode_provinsi_kejadian', 'laporan_kode_provinsi_kejadian_index');
             $table->index('kode_kabupaten_kejadian', 'laporan_kode_kabupaten_kejadian_index');
             $table->index('kode_kecamatan_kejadian', 'laporan_kode_kecamatan_kejadian_index');

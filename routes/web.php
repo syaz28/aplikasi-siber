@@ -1,8 +1,10 @@
 <?php
 
+use App\Http\Controllers\AdminSubdit\CaseManagementController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\LaporanController;
 use App\Http\Controllers\MasterDataController;
+use App\Http\Controllers\Pimpinan\PimpinanDashboardController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -26,10 +28,11 @@ Route::get('/', function () {
 });
 
 // ============================================
-// AUTHENTICATED ROUTES
+// AUTHENTICATED ROUTES (Sistem Pelaporan)
+// Untuk: petugas, admin_subdit only
 // ============================================
 
-Route::middleware(['auth', 'verified'])->group(function () {
+Route::middleware(['auth', 'verified', 'role:petugas,admin_subdit'])->group(function () {
     
     // Dashboard with statistics
     Route::get('/dashboard', [DashboardController::class, 'index'])
@@ -69,6 +72,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
             ->name('lampiran.store');
         Route::delete('{id}/lampiran/{lampiranId}', [LaporanController::class, 'deleteLampiran'])
             ->name('lampiran.destroy');
+        
+        // Admin: Assign laporan to subdit
+        Route::post('{id}/assign-subdit', [LaporanController::class, 'assignSubdit'])
+            ->name('assign-subdit');
     });
 
     // ============================================
@@ -87,6 +94,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
             ->name('provinsi');
         Route::get('kabupaten/{kodeProvinsi}', [MasterDataController::class, 'kabupaten'])
             ->name('kabupaten');
+        Route::get('kabupaten-all', [MasterDataController::class, 'kabupatenAll'])
+            ->name('kabupaten-all');
         Route::get('kecamatan/{kodeKabupaten}', [MasterDataController::class, 'kecamatan'])
             ->name('kecamatan');
         Route::get('kelurahan/{kodeKecamatan}', [MasterDataController::class, 'kelurahan'])
@@ -105,10 +114,16 @@ Route::middleware(['auth', 'verified'])->group(function () {
         // Crime types
         Route::get('kategori-kejahatan', [MasterDataController::class, 'kategoriKejahatan'])
             ->name('kategori-kejahatan');
-        Route::get('jenis-kejahatan/{kategoriId}', [MasterDataController::class, 'jenisKejahatan'])
-            ->name('jenis-kejahatan');
-        Route::get('jenis-kejahatan', [MasterDataController::class, 'jenisKejahatanAll'])
-            ->name('jenis-kejahatan.all');
+        
+        // Platforms (for identitas tersangka dependent dropdown)
+        Route::get('platforms', [MasterDataController::class, 'getPlatforms'])
+            ->name('platforms');
+        
+        // Countries & Phone Codes (for WNA dropdown and phone input)
+        Route::get('countries', [MasterDataController::class, 'getCountries'])
+            ->name('countries');
+        Route::get('phone-codes', [MasterDataController::class, 'getPhoneCodes'])
+            ->name('phone-codes');
     });
 
     // ============================================
@@ -118,6 +133,31 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+});
+
+// ============================================
+// ADMIN SUBDIT (Min Ops) ROUTES
+// Untuk: admin_subdit only
+// ============================================
+
+Route::middleware(['auth', 'verified', 'role:admin_subdit'])->prefix('min-ops')->name('min-ops.')->group(function () {
+    
+    // Case Management (Manajemen Kasus)
+    Route::get('/', [CaseManagementController::class, 'index'])->name('index');
+    Route::get('/kasus/{id}', [CaseManagementController::class, 'show'])->name('show');
+    Route::patch('/kasus/{id}/unit', [CaseManagementController::class, 'updateUnit'])->name('update-unit');
+    Route::patch('/kasus/{id}/status', [CaseManagementController::class, 'updateStatus'])->name('update-status');
+});
+
+// ============================================
+// PIMPINAN ROUTES (Executive Dashboard)
+// Untuk: pimpinan only
+// ============================================
+
+Route::middleware(['auth', 'verified', 'role:pimpinan'])->prefix('pimpinan')->name('pimpinan.')->group(function () {
+    
+    // Executive Dashboard - Profiling & Demographics
+    Route::get('/dashboard', [PimpinanDashboardController::class, 'index'])->name('dashboard');
 });
 
 // Auth routes (Laravel Breeze)
