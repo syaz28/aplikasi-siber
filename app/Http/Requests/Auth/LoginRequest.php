@@ -10,10 +10,10 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
- * LoginRequest - NRP-based Authentication
+ * LoginRequest - Username-based Authentication
  * 
- * Police officers login using their NRP (Nomor Registrasi Pokok).
- * NRP is stored directly in users table.
+ * Shared account login using username instead of personal credentials.
+ * Supports roles: admin, petugas, admin_subdit, pimpinan.
  */
 class LoginRequest extends FormRequest
 {
@@ -33,7 +33,7 @@ class LoginRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'nrp' => ['required', 'string'],
+            'username' => ['required', 'string'],
             'password' => ['required', 'string'],
         ];
     }
@@ -46,7 +46,7 @@ class LoginRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'nrp.required' => 'NRP wajib diisi.',
+            'username.required' => 'Username wajib diisi.',
             'password.required' => 'Password wajib diisi.',
         ];
     }
@@ -60,12 +60,12 @@ class LoginRequest extends FormRequest
     {
         $this->ensureIsNotRateLimited();
 
-        // Login langsung dengan NRP dari tabel users
-        if (! Auth::attempt(['nrp' => $this->input('nrp'), 'password' => $this->input('password')], $this->boolean('remember'))) {
+        // Login with username from users table
+        if (! Auth::attempt(['username' => $this->input('username'), 'password' => $this->input('password')], $this->boolean('remember'))) {
             RateLimiter::hit($this->throttleKey());
 
             throw ValidationException::withMessages([
-                'nrp' => 'NRP atau password salah.',
+                'username' => 'Username atau password salah.',
             ]);
         }
 

@@ -1,9 +1,11 @@
 <?php
 
+use App\Http\Controllers\AdminSubdit\AdminSubditDashboardController;
 use App\Http\Controllers\AdminSubdit\CaseManagementController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\LaporanController;
 use App\Http\Controllers\MasterDataController;
+use App\Http\Controllers\PawasController;
 use App\Http\Controllers\Pimpinan\PimpinanDashboardController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
@@ -29,10 +31,18 @@ Route::get('/', function () {
 
 // ============================================
 // AUTHENTICATED ROUTES (Sistem Pelaporan)
-// Untuk: petugas, admin_subdit only
+// Untuk: petugas only (Entry & Arsip Laporan)
 // ============================================
 
-Route::middleware(['auth', 'verified', 'role:petugas,admin_subdit'])->group(function () {
+// Pawas Selection (for petugas role - no middleware)
+Route::middleware(['auth', 'verified', 'role:petugas'])->prefix('pawas')->name('pawas.')->group(function () {
+    Route::get('/select', [PawasController::class, 'select'])->name('select');
+    Route::post('/select', [PawasController::class, 'store'])->name('store');
+    Route::post('/clear', [PawasController::class, 'clear'])->name('clear');
+    Route::get('/search', [PawasController::class, 'search'])->name('search');
+});
+
+Route::middleware(['auth', 'verified', 'role:petugas', 'pawas.selected'])->group(function () {
     
     // Dashboard with statistics
     Route::get('/dashboard', [DashboardController::class, 'index'])
@@ -136,9 +146,16 @@ Route::middleware(['auth', 'verified', 'role:petugas,admin_subdit'])->group(func
 });
 
 // ============================================
-// ADMIN SUBDIT (Min Ops) ROUTES
+// ADMIN SUBDIT ROUTES
 // Untuk: admin_subdit only
 // ============================================
+
+Route::middleware(['auth', 'verified', 'role:admin_subdit'])->prefix('subdit')->name('subdit.')->group(function () {
+    
+    // Dashboard (Unit Management Focus)
+    Route::get('/dashboard', [AdminSubditDashboardController::class, 'index'])->name('dashboard');
+    Route::patch('/dashboard/{id}/assign-unit', [AdminSubditDashboardController::class, 'assignUnit'])->name('assign-unit');
+});
 
 Route::middleware(['auth', 'verified', 'role:admin_subdit'])->prefix('min-ops')->name('min-ops.')->group(function () {
     

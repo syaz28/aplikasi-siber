@@ -621,27 +621,12 @@ const getAlamatLengkap = (alamat) => {
                         
                         <div class="space-y-3 text-sm">
                             <div>
-                                <span class="block text-gray-500 text-xs mb-1">Dibuat oleh</span>
-                                <span class="font-medium text-gray-900">{{ laporan.created_by?.name || '-' }}</span>
-                            </div>
-                            <div>
                                 <span class="block text-gray-500 text-xs mb-1">Dibuat pada</span>
                                 <span class="font-medium text-gray-900">{{ formatDateTime(laporan.created_at) }}</span>
-                            </div>
-                            <div v-if="laporan.assigned_by">
-                                <span class="block text-gray-500 text-xs mb-1">Ditugaskan oleh</span>
-                                <span class="font-medium text-gray-900">{{ laporan.assigned_by?.name || '-' }}</span>
                             </div>
                             <div v-if="laporan.assigned_at">
                                 <span class="block text-gray-500 text-xs mb-1">Ditugaskan pada</span>
                                 <span class="font-medium text-gray-900">{{ formatDateTime(laporan.assigned_at) }}</span>
-                            </div>
-                            <div>
-                                <span class="block text-gray-500 text-xs mb-1">Petugas Penerima</span>
-                                <span class="font-medium text-gray-900">
-                                    {{ laporan.petugas?.name || '-' }}
-                                    <span v-if="laporan.petugas?.pangkat" class="text-gray-500">({{ laporan.petugas.pangkat }})</span>
-                                </span>
                             </div>
                         </div>
                     </div>

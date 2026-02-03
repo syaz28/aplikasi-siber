@@ -8,7 +8,7 @@ defineProps({
 });
 
 const form = useForm({
-    nrp: '',
+    username: '',
     password: '',
     remember: false,
 });
@@ -62,23 +62,21 @@ const submit = () => {
                     </div>
 
                     <form @submit.prevent="submit" class="space-y-5">
-                        <!-- NRP Field -->
+                        <!-- Username Field -->
                         <div>
-                            <label for="nrp" class="block text-sm font-medium text-white mb-1">
-                                NRP (Nomor Registrasi Pokok)
+                            <label for="username" class="block text-sm font-medium text-white mb-1">
+                                Username
                             </label>
                             <input
-                                id="nrp"
+                                id="username"
                                 type="text"
-                                inputmode="numeric"
-                                pattern="[0-9]*"
-                                v-model="form.nrp"
+                                v-model="form.username"
                                 autocomplete="username"
                                 autofocus
                                 class="block w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-slate-400 focus:border-tactical-accent focus:ring-tactical-accent focus:bg-white/20 transition-all"
-                                placeholder="12345678"
+                                placeholder="admin / petugas / pimpinan / subdit1"
                             />
-                            <InputError :message="form.errors.nrp" class="mt-2" />
+                            <InputError :message="form.errors.username" class="mt-2" />
                         </div>
 
                         <!-- Password Field -->

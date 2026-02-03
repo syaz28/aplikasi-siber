@@ -346,9 +346,10 @@ const stats = computed(() => {
                                     {{ item.kategori_kejahatan?.nama || '-' }}
                                 </td>
                                 
-                                <!-- Unit Column (Inline Editable) -->
+                                <!-- Unit Column (Locked after first selection) -->
                                 <td class="px-4 py-3">
-                                    <div v-if="editingUnit === item.id" class="flex items-center gap-1">
+                                    <!-- Show dropdown only when not yet assigned -->
+                                    <div v-if="!item.disposisi_unit && editingUnit === item.id" class="flex items-center gap-1">
                                         <select
                                             :value="item.disposisi_unit"
                                             @change="updateUnit(item, $event.target.value)"
@@ -369,19 +370,25 @@ const stats = computed(() => {
                                             </svg>
                                         </button>
                                     </div>
-                                    <button
-                                        v-else
-                                        @click="editingUnit = item.id"
-                                        class="group flex items-center gap-1 cursor-pointer"
-                                    >
+                                    <!-- Locked badge with lock icon when already assigned -->
+                                    <div v-else-if="item.disposisi_unit" class="flex items-center gap-1">
                                         <span
-                                            v-if="item.disposisi_unit"
                                             class="px-2 py-0.5 text-xs font-semibold rounded border"
                                             :class="getUnitClass(item.disposisi_unit)"
                                         >
                                             Unit {{ item.disposisi_unit }}
                                         </span>
-                                        <span v-else class="text-xs text-gray-400 italic">
+                                        <svg class="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" title="Ubah di halaman detail">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                        </svg>
+                                    </div>
+                                    <!-- Editable button when not yet assigned -->
+                                    <button
+                                        v-else
+                                        @click="editingUnit = item.id"
+                                        class="group flex items-center gap-1 cursor-pointer"
+                                    >
+                                        <span class="text-xs text-gray-400 italic">
                                             Belum disposisi
                                         </span>
                                         <svg class="w-3 h-3 text-gray-300 group-hover:text-tactical-accent transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -390,43 +397,19 @@ const stats = computed(() => {
                                     </button>
                                 </td>
 
-                                <!-- Status Column (Inline Editable) -->
+                                <!-- Status Column (Locked - change via detail page) -->
                                 <td class="px-4 py-3">
-                                    <div v-if="editingStatus === item.id" class="flex items-center gap-1">
-                                        <select
-                                            :value="item.status"
-                                            @change="updateStatus(item, $event.target.value)"
-                                            :disabled="savingStatus === item.id"
-                                            class="text-xs rounded border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent py-1 px-2"
-                                        >
-                                            <option v-for="(label, value) in statusOptions" :key="value" :value="value">
-                                                {{ label }}
-                                            </option>
-                                        </select>
-                                        <button
-                                            @click="editingStatus = null"
-                                            class="p-1 text-gray-400 hover:text-gray-600"
-                                        >
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                                            </svg>
-                                        </button>
-                                    </div>
-                                    <button
-                                        v-else
-                                        @click="editingStatus = item.id"
-                                        class="group flex items-center gap-1 cursor-pointer"
-                                    >
+                                    <div class="flex items-center gap-1">
                                         <span
                                             class="px-2.5 py-1 text-xs font-semibold rounded-full"
                                             :class="getStatusClass(item.status)"
                                         >
                                             {{ getStatusLabel(item.status) }}
                                         </span>
-                                        <svg class="w-3 h-3 text-gray-300 group-hover:text-tactical-accent transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                        <svg class="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" title="Ubah di halaman detail">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                                         </svg>
-                                    </button>
+                                    </div>
                                 </td>
 
                                 <td class="px-4 py-3">

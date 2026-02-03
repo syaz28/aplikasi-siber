@@ -26,6 +26,12 @@ class AuthenticatedSessionController extends Controller
 
     /**
      * Handle an incoming authentication request.
+     * 
+     * Redirect based on role:
+     * - admin -> /admin (User Management)
+     * - admin_subdit -> /min-ops (Case Management only)
+     * - petugas -> /dashboard (with Pawas selection prompt)
+     * - pimpinan -> /pimpinan/dashboard (Executive Dashboard)
      */
     public function store(LoginRequest $request): RedirectResponse
     {
@@ -33,19 +39,29 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
-        // Redirect berdasarkan role
         $user = Auth::user();
         
+        // Admin -> User Management
         if ($user->role === 'admin') {
             return redirect()->intended(route('admin.dashboard', absolute: false));
         }
         
-        // Pimpinan -> Executive Dashboard (khusus)
+        // Pimpinan -> Executive Dashboard (exclusive access)
         if ($user->role === 'pimpinan') {
             return redirect()->intended(route('pimpinan.dashboard', absolute: false));
         }
         
-        // Petugas, Admin Subdit -> Sistem Pelaporan
+        // Admin Subdit -> Subdit Dashboard (Unit Management)
+        if ($user->role === 'admin_subdit') {
+            return redirect()->intended(route('subdit.dashboard', absolute: false));
+        }
+        
+        // Petugas -> Case Entry (with Pawas selection)
+        if ($user->role === 'petugas') {
+            return redirect()->intended(route('dashboard', absolute: false));
+        }
+        
+        // Fallback
         return redirect()->intended(route('dashboard', absolute: false));
     }
 

@@ -24,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // Register custom middleware aliases
         $middleware->alias([
             'role' => \App\Http\Middleware\CheckRole::class,
+            'pawas.selected' => \App\Http\Middleware\EnsurePawasSelected::class,
         ]);
 
         // Redirect authenticated users away from guest routes (login, register)

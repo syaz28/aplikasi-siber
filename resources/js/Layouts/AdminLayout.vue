@@ -23,6 +23,11 @@ const navigation = [
     {
         name: 'Kelola User',
         href: '/admin/users',
+        icon: 'user-cog',
+    },
+    {
+        name: 'Data Personel',
+        href: '/admin/personels',
         icon: 'users',
     },
     {
@@ -113,6 +118,12 @@ const logout = () => {
                                 d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"
                             />
                         </svg>
+                        <!-- User Cog Icon -->
+                        <svg v-else-if="item.icon === 'user-cog'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
+                        </svg>
                         <!-- Users Icon -->
                         <svg v-else-if="item.icon === 'users'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -140,11 +151,11 @@ const logout = () => {
             <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-navy-700">
                 <div class="flex items-center gap-3 mb-3">
                     <div class="w-10 h-10 bg-tactical-accent rounded-full flex items-center justify-center text-white font-bold">
-                        {{ user?.name?.charAt(0)?.toUpperCase() || 'A' }}
+                        {{ user?.username?.charAt(0)?.toUpperCase() || 'A' }}
                     </div>
                     <div class="flex-1 min-w-0">
-                        <p class="text-sm font-medium text-white truncate">{{ user?.name || 'Admin' }}</p>
-                        <p class="text-xs text-gray-400 truncate">{{ user?.nrp || 'Administrator' }}</p>
+                        <p class="text-sm font-medium text-white truncate">{{ user?.username || 'Admin' }}</p>
+                        <p class="text-xs text-gray-400 truncate">Administrator</p>
                     </div>
                 </div>
                 <button

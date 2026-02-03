@@ -25,14 +25,15 @@ use Inertia\Response as InertiaResponse;
 class PimpinanDashboardController extends Controller
 {
     /**
-     * Age group definitions
-     * Calculated dynamically from tanggal_lahir
+     * Age group definitions (Police Standard Categories)
+     * Calculated dynamically from tanggal_lahir vs tanggal_laporan
      */
     private const AGE_GROUPS = [
-        '< 17' => ['min' => 0, 'max' => 16, 'label' => '< 17 (Anak)'],
-        '17-25' => ['min' => 17, 'max' => 25, 'label' => '17-25 (Remaja)'],
-        '26-45' => ['min' => 26, 'max' => 45, 'label' => '26-45 (Dewasa)'],
-        '> 45' => ['min' => 46, 'max' => 150, 'label' => '> 45 (Lansia)'],
+        '< 17' => ['min' => 0, 'max' => 16, 'label' => '< 17 Th (Anak-anak)'],
+        '17-25' => ['min' => 17, 'max' => 25, 'label' => '17-25 Th (Remaja)'],
+        '26-45' => ['min' => 26, 'max' => 45, 'label' => '26-45 Th (Dewasa)'],
+        '46-60' => ['min' => 46, 'max' => 60, 'label' => '46-60 Th (Orang Tua)'],
+        '> 60' => ['min' => 61, 'max' => 200, 'label' => '> 60 Th (Lansia)'],
     ];
 
     /**
@@ -75,7 +76,7 @@ class PimpinanDashboardController extends Controller
             $baseQuery->whereIn('orang.jenis_kelamin', $filterGender);
         }
 
-        // Apply age group filter using TIMESTAMPDIFF
+        // Apply age group filter using TIMESTAMPDIFF (based on tanggal_laporan)
         if (!empty($filterAgeGroup)) {
             $baseQuery->where(function ($query) use ($filterAgeGroup) {
                 foreach ($filterAgeGroup as $group) {
@@ -83,7 +84,7 @@ class PimpinanDashboardController extends Controller
                         $min = self::AGE_GROUPS[$group]['min'];
                         $max = self::AGE_GROUPS[$group]['max'];
                         $query->orWhereRaw(
-                            'TIMESTAMPDIFF(YEAR, orang.tanggal_lahir, CURDATE()) BETWEEN ? AND ?',
+                            'TIMESTAMPDIFF(YEAR, orang.tanggal_lahir, laporan.tanggal_laporan) BETWEEN ? AND ?',
                             [$min, $max]
                         );
                     }
@@ -124,7 +125,7 @@ class PimpinanDashboardController extends Controller
                         $min = self::AGE_GROUPS[$group]['min'];
                         $max = self::AGE_GROUPS[$group]['max'];
                         $query->orWhereRaw(
-                            'TIMESTAMPDIFF(YEAR, orang.tanggal_lahir, CURDATE()) BETWEEN ? AND ?',
+                            'TIMESTAMPDIFF(YEAR, orang.tanggal_lahir, laporan.tanggal_laporan) BETWEEN ? AND ?',
                             [$min, $max]
                         );
                     }
@@ -189,14 +190,14 @@ class PimpinanDashboardController extends Controller
         ];
 
         // =============================================
-        // D. CHART: AGE GROUP DISTRIBUTION
+        // D. CHART: AGE GROUP DISTRIBUTION (based on tanggal_laporan)
         // =============================================
         $usiaData = [];
         foreach (self::AGE_GROUPS as $key => $range) {
             $usiaQuery = Laporan::query()
                 ->join('orang', 'laporan.pelapor_id', '=', 'orang.id')
                 ->whereRaw(
-                    'TIMESTAMPDIFF(YEAR, orang.tanggal_lahir, CURDATE()) BETWEEN ? AND ?',
+                    'TIMESTAMPDIFF(YEAR, orang.tanggal_lahir, laporan.tanggal_laporan) BETWEEN ? AND ?',
                     [$range['min'], $range['max']]
                 );
 
@@ -285,7 +286,7 @@ class PimpinanDashboardController extends Controller
                         $min = self::AGE_GROUPS[$group]['min'];
                         $max = self::AGE_GROUPS[$group]['max'];
                         $q->orWhereRaw(
-                            'TIMESTAMPDIFF(YEAR, orang.tanggal_lahir, CURDATE()) BETWEEN ? AND ?',
+                            'TIMESTAMPDIFF(YEAR, orang.tanggal_lahir, laporan.tanggal_laporan) BETWEEN ? AND ?',
                             [$min, $max]
                         );
                     }

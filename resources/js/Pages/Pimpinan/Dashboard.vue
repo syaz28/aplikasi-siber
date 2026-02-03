@@ -57,10 +57,11 @@ const getGenderLabel = (code) => {
 
 const getAgeGroupLabel = (code) => {
     const labels = {
-        '< 17': '< 17 (Anak)',
-        '17-25': '17-25 (Remaja)',
-        '26-45': '26-45 (Dewasa)',
-        '> 45': '> 45 (Lansia)',
+        '< 17': '< 17 Th (Anak-anak)',
+        '17-25': '17-25 Th (Remaja)',
+        '26-45': '26-45 Th (Dewasa)',
+        '46-60': '46-60 Th (Orang Tua)',
+        '> 60': '> 60 Th (Lansia)',
     };
     return labels[code] || code;
 };
@@ -833,8 +834,8 @@ const pendidikanChartSeries = computed(() => [{
                         <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
                             <div class="flex items-center justify-between mb-4">
                                 <div>
-                                    <h3 class="text-base font-semibold text-gray-900">Kelompok Usia</h3>
-                                    <p class="text-xs text-gray-500">Distribusi umur pelapor</p>
+                                    <h3 class="text-base font-semibold text-gray-900">Demografi Usia Pelapor</h3>
+                                    <p class="text-xs text-gray-500">Distribusi umur pelapor saat melapor</p>
                                 </div>
                                 <div class="p-2 bg-green-50 rounded-lg">
                                     <svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

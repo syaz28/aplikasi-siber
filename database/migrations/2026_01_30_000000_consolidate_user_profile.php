@@ -10,14 +10,17 @@ return new class extends Migration
     /**
      * Run the migrations.
      * 
-     * Consolidate anggota table into users table.
-     * After this migration:
-     * - users table contains all user profile data (nrp, pangkat, telepon, etc.)
-     * - anggota table is dropped
-     * - laporan.petugas_id now references users.id instead of anggota.id
+     * NOTE: This migration is now deprecated due to shared account refactor.
+     * It will skip execution if pangkat.nama column doesn't exist (removed in 2026_01_28_000001).
+     * Since our new shared account structure doesn't need this consolidation, we skip it entirely.
      */
     public function up(): void
     {
+        // Skip if pangkat.nama column was removed (indicates we're using new structure)
+        if (!Schema::hasColumn('pangkat', 'nama')) {
+            return;
+        }
+        
         // Step 1: Add new columns to users table (if not exist)
         Schema::table('users', function (Blueprint $table) {
             if (!Schema::hasColumn('users', 'pangkat')) {
@@ -137,6 +140,16 @@ return new class extends Migration
      * Reverse the migrations.
      */
     public function down(): void
+    {
+        // Skip if using new shared account structure
+        if (Schema::hasColumn('users', 'username')) {
+            return;
+        }
+        
+        $this->revertOldStructure();
+    }
+
+    private function revertOldStructure(): void
     {
         // Recreate pangkat table
         Schema::create('pangkat', function (Blueprint $table) {

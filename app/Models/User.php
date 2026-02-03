@@ -8,24 +8,22 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
 /**
- * User (Authentication & Profile)
+ * User (Shared Account Authentication)
  * 
- * User sistem dengan semua data profil langsung (konsolidasi dari anggota)
- * Role: admin, petugas, admin_subdit, pimpinan
+ * Simplified user model for shared account login.
+ * No longer stores personal data - only authentication credentials and role.
+ * 
+ * Role-based access:
+ * - admin: User management, full system access
+ * - petugas: Case entry with Pawas selection
+ * - admin_subdit: Subdit-specific case management
+ * - pimpinan: Executive dashboard only
  * 
  * @property int $id
- * @property string $name Nama lengkap
- * @property string|null $nrp NRP Anggota
- * @property string|null $pangkat Pangkat (AKBP, Kompol, AKP, dll)
- * @property string|null $telepon Nomor telepon
- * @property string|null $jabatan Jabatan fungsional
- * @property string|null $email
- * @property \Carbon\Carbon|null $email_verified_at
- * @property string $password
+ * @property string $username Unique username for login
+ * @property string $password Hashed password
  * @property string $role admin|petugas|admin_subdit|pimpinan
- * @property int|null $subdit Subdit 1-3 (untuk admin_subdit/petugas)
- * @property int|null $unit Unit 1-5 (untuk petugas)
- * @property bool $is_active Status aktif user
+ * @property int|null $subdit_access Subdit filter for admin_subdit (1=Ekonomi, 2=Sosial, 3=Khusus)
  * @property \Carbon\Carbon|null $created_at
  * @property \Carbon\Carbon|null $updated_at
  * 
@@ -44,17 +42,10 @@ class User extends Authenticatable
      * @var list<string>
      */
     protected $fillable = [
-        'name',
-        'nrp',
-        'email',
+        'username',
         'password',
         'role',
-        'subdit',
-        'unit',
-        'is_active',
-        'pangkat',
-        'telepon',
-        'jabatan',
+        'subdit_access',
     ];
 
     /**
@@ -75,11 +66,8 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
-            'email_verified_at' => 'datetime',
             'password' => 'hashed',
-            'is_active' => 'boolean',
-            'subdit' => 'integer',
-            'unit' => 'integer',
+            'subdit_access' => 'integer',
         ];
     }
 

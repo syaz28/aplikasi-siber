@@ -134,11 +134,11 @@ class Laporan extends Model
     }
 
     /**
-     * Petugas penerima laporan
+     * Petugas penerima laporan (Personel/Pawas)
      */
     public function petugas(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'petugas_id');
+        return $this->belongsTo(Personel::class, 'petugas_id');
     }
 
     /**

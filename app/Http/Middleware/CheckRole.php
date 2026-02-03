@@ -30,9 +30,19 @@ class CheckRole
 
         // Check if user's role is in allowed roles
         if (!in_array($user->role, $roles)) {
-            // Redirect based on role
+            // Redirect based on role to their appropriate home page
             if ($user->role === 'admin') {
                 return redirect()->route('admin.dashboard')
+                    ->with('error', 'Anda tidak memiliki akses ke halaman tersebut');
+            }
+            
+            if ($user->role === 'admin_subdit') {
+                return redirect()->route('subdit.dashboard')
+                    ->with('error', 'Anda tidak memiliki akses ke halaman tersebut');
+            }
+            
+            if ($user->role === 'pimpinan') {
+                return redirect()->route('pimpinan.dashboard')
                     ->with('error', 'Anda tidak memiliki akses ke halaman tersebut');
             }
             

@@ -7,6 +7,7 @@ use App\Models\MasterCountry;
 use App\Models\MasterPekerjaan;
 use App\Models\MasterPendidikan;
 use App\Models\MasterPlatform;
+use App\Models\Personel;
 use App\Models\User;
 use App\Models\Wilayah;
 use Illuminate\Http\JsonResponse;
@@ -198,37 +199,36 @@ class MasterDataController extends Controller
 
     /**
      * Get all active anggota (police officers) for dropdown
-     * Now fetches from users table with petugas/admin_subdit roles
+     * Now fetches from personels table (refactored from users)
      */
     public function anggota(Request $request): JsonResponse
     {
-        $query = User::active()
-            ->whereIn('role', ['petugas', 'admin_subdit']);
+        $query = Personel::query();
 
-        // Optional filter by jabatan
-        if ($request->filled('jabatan')) {
-            $query->where('jabatan', $request->input('jabatan'));
+        // Optional filter by subdit
+        if ($request->filled('subdit')) {
+            $query->where('subdit_id', $request->input('subdit'));
         }
 
         // Optional search
         if ($request->filled('search')) {
             $search = $request->input('search');
             $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
+                $q->where('nama_lengkap', 'like', "%{$search}%")
                     ->orWhere('nrp', 'like', "%{$search}%");
             });
         }
 
-        $anggota = $query->orderBy('name')->get();
+        $anggota = $query->orderBy('nama_lengkap')->get();
 
         // Format for dropdown display
         $formatted = $anggota->map(fn($a) => [
             'id' => $a->id,
             'nrp' => $a->nrp,
-            'nama' => $a->name,
+            'nama' => $a->nama_lengkap,
             'pangkat' => $a->pangkat,
-            'jabatan' => $a->jabatan,
-            'display_name' => ($a->pangkat ? $a->pangkat . ' ' : '') . $a->name,
+            'jabatan' => null,
+            'display_name' => ($a->pangkat ? $a->pangkat . ' ' : '') . $a->nama_lengkap,
         ]);
 
         return response()->json([
@@ -238,21 +238,21 @@ class MasterDataController extends Controller
     }
 
     /**
-     * Get single anggota by ID (now from users table)
+     * Get single anggota by ID (now from personels table)
      */
     public function anggotaShow(int $id): JsonResponse
     {
-        $user = User::findOrFail($id);
+        $personel = Personel::findOrFail($id);
 
         return response()->json([
             'success' => true,
             'data' => [
-                'id' => $user->id,
-                'nrp' => $user->nrp,
-                'nama' => $user->name,
-                'pangkat' => $user->pangkat,
-                'jabatan' => $user->jabatan,
-                'display_name' => ($user->pangkat ? $user->pangkat . ' ' : '') . $user->name,
+                'id' => $personel->id,
+                'nrp' => $personel->nrp,
+                'nama' => $personel->nama_lengkap,
+                'pangkat' => $personel->pangkat,
+                'jabatan' => null,
+                'display_name' => ($personel->pangkat ? $personel->pangkat . ' ' : '') . $personel->nama_lengkap,
             ],
         ]);
     }
@@ -358,16 +358,14 @@ class MasterDataController extends Controller
                 'kategori_kejahatan' => KategoriKejahatan::active()
                     ->orderBy('id') // Order by ID for consistent ordering
                     ->get(['id', 'nama']),
-                'anggota' => User::active()
-                    ->whereIn('role', ['petugas', 'admin_subdit'])
-                    ->orderBy('name')
+                'anggota' => Personel::orderBy('nama_lengkap')
                     ->get()
                     ->map(fn($a) => [
                         'id' => $a->id,
-                        'nama' => $a->name,
+                        'nama' => $a->nama_lengkap,
                         'nrp' => $a->nrp,
                         'pangkat' => $a->pangkat,
-                        'jabatan' => $a->jabatan,
+                        'jabatan' => null,
                     ]),
                 'pekerjaan' => MasterPekerjaan::orderBy('nama')
                     ->get(['id', 'nama']),

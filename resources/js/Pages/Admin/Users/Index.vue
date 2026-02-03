@@ -73,7 +73,6 @@ const handleSearch = () => {
 watch([search, role, subdit], handleSearch);
 
 const deleteConfirm = ref(null);
-const resetConfirm = ref(null);
 
 const confirmDelete = (id) => {
     deleteConfirm.value = id;
@@ -93,28 +92,6 @@ const deleteUser = () => {
         },
         onError: () => {
             toast.error('Gagal menghapus user');
-        }
-    });
-};
-
-const confirmResetPassword = (user) => {
-    resetConfirm.value = user;
-};
-
-const cancelReset = () => {
-    resetConfirm.value = null;
-};
-
-const resetPassword = () => {
-    if (!resetConfirm.value) return;
-    
-    router.post(`/admin/users/${resetConfirm.value.id}/reset-password`, {}, {
-        onSuccess: () => {
-            toast.success('Password berhasil direset ke NRP');
-            resetConfirm.value = null;
-        },
-        onError: () => {
-            toast.error('Gagal mereset password');
         }
     });
 };
@@ -190,7 +167,7 @@ const stats = computed(() => {
                             <input
                                 v-model="search"
                                 type="text"
-                                placeholder="Cari nama, NRP, email..."
+                                placeholder="Cari username..."
                                 class="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
                             />
                             <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -231,28 +208,23 @@ const stats = computed(() => {
                     <table class="min-w-full divide-y divide-slate-200">
                         <thead class="bg-slate-800 text-white">
                             <tr>
-                                <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">User</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">NRP</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">Username</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">Role</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">Subdit / Unit</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">Subdit</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">Status</th>
                                 <th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider">Aksi</th>
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-slate-200">
                             <tr v-if="users.data.length === 0">
-                                <td colspan="6" class="px-4 py-8 text-center text-slate-500">
+                                <td colspan="5" class="px-4 py-8 text-center text-slate-500">
                                     Tidak ada data user
                                 </td>
                             </tr>
                             <tr v-for="user in users.data" :key="user.id" class="hover:bg-slate-50 transition">
                                 <td class="px-4 py-3">
-                                    <div>
-                                        <p class="font-medium text-slate-800">{{ user.name }}</p>
-                                        <p class="text-sm text-slate-500">{{ user.email || '-' }}</p>
-                                    </div>
+                                    <p class="font-medium text-slate-800">{{ user.username }}</p>
                                 </td>
-                                <td class="px-4 py-3 text-sm text-slate-600">{{ user.nrp || '-' }}</td>
                                 <td class="px-4 py-3">
                                     <span :class="['px-2 py-1 rounded-full text-xs font-medium', getRoleClass(user.role)]">
                                         {{ getRoleLabel(user.role) }}
@@ -260,9 +232,7 @@ const stats = computed(() => {
                                 </td>
                                 <td class="px-4 py-3 text-sm text-slate-600">
                                     <span v-if="user.subdit">Subdit {{ user.subdit }}</span>
-                                    <span v-if="user.subdit && user.unit"> / </span>
-                                    <span v-if="user.unit">Unit {{ user.unit }}</span>
-                                    <span v-if="!user.subdit && !user.unit">-</span>
+                                    <span v-else>-</span>
                                 </td>
                                 <td class="px-4 py-3">
                                     <span :class="['px-2 py-1 rounded-full text-xs font-medium', getStatusClass(user.is_active)]">
@@ -271,15 +241,6 @@ const stats = computed(() => {
                                 </td>
                                 <td class="px-4 py-3 text-right">
                                     <div class="flex items-center justify-end gap-2">
-                                        <button
-                                            @click="confirmResetPassword(user)"
-                                            class="p-1.5 text-yellow-600 hover:bg-yellow-50 rounded-lg transition"
-                                            title="Reset Password"
-                                        >
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                                            </svg>
-                                        </button>
                                         <Link
                                             :href="`/admin/users/${user.id}/edit`"
                                             class="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition"
@@ -348,28 +309,6 @@ const stats = computed(() => {
                     <div class="flex justify-end gap-3">
                         <button @click="cancelDelete" class="px-4 py-2 text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition">Batal</button>
                         <button @click="deleteUser" class="px-4 py-2 text-white bg-red-600 rounded-lg hover:bg-red-700 transition">Hapus</button>
-                    </div>
-                </div>
-            </div>
-        </Teleport>
-
-        <!-- Reset Password Modal -->
-        <Teleport to="body">
-            <div v-if="resetConfirm" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-                <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
-                    <div class="flex items-center gap-3 mb-4">
-                        <div class="p-2 bg-yellow-100 rounded-full">
-                            <svg class="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                            </svg>
-                        </div>
-                        <h3 class="text-lg font-semibold text-slate-900">Reset Password</h3>
-                    </div>
-                    <p class="text-slate-600 mb-2">Reset password untuk <strong>{{ resetConfirm.name }}</strong>?</p>
-                    <p class="text-sm text-slate-500 mb-6">Password akan direset ke NRP: <code class="bg-slate-100 px-2 py-0.5 rounded">{{ resetConfirm.nrp }}</code></p>
-                    <div class="flex justify-end gap-3">
-                        <button @click="cancelReset" class="px-4 py-2 text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition">Batal</button>
-                        <button @click="resetPassword" class="px-4 py-2 text-white bg-yellow-600 rounded-lg hover:bg-yellow-700 transition">Reset Password</button>
                     </div>
                 </div>
             </div>

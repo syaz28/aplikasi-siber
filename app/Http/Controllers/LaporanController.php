@@ -10,7 +10,7 @@ use App\Models\Lampiran;
 use App\Models\Laporan;
 use App\Models\Orang;
 use App\Models\Tersangka;
-use App\Services\StpaFpdiService;
+use App\Services\StpaPdfService;
 use App\Services\TerbilangService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -301,12 +301,20 @@ class LaporanController extends Controller
             }
 
             // 3. Create Laporan
+            // Get petugas_id from session (Pawas yang dipilih) - this is personel.id
+            $petugasId = session('active_pawas_id');
+            
+            // Validate that Pawas has been selected
+            if (!$petugasId) {
+                throw new \Exception('Anda harus memilih identitas Pawas terlebih dahulu. Silakan pilih melalui menu "Ganti Identitas".');
+            }
+            
             $laporan = Laporan::create([
                 'nomor_stpa' => StpaNumberGenerator::generate(), // Auto-generated: STPA/601/IV/2025/Ditressiber
                 'tanggal_laporan' => now(), // Auto-set to current date
                 'pelapor_id' => $pelapor->id,
                 'hubungan_pelapor' => $validated['hubungan_pelapor'],
-                'petugas_id' => auth()->id(), // Auto-bound from logged-in officer (now uses User id)
+                'petugas_id' => $petugasId, // Personel ID from session (Pawas yang dipilih)
                 'kategori_kejahatan_id' => $validated['kategori_kejahatan_id'],
                 'kode_kabupaten_kejadian' => $validated['kode_kabupaten_kejadian'],
                 'alamat_kejadian' => $validated['alamat_kejadian'] ?? null,
@@ -640,7 +648,7 @@ class LaporanController extends Controller
         $laporan = Laporan::with($this->eagerLoads)->findOrFail($id);
 
         try {
-            $pdfService = new StpaFpdiService();
+            $pdfService = new StpaPdfService();
             $pdfContent = $pdfService->generate($laporan);
             
             $filename = 'STPA-' . ($laporan->nomor_stpa ?? $laporan->id) . '.pdf';

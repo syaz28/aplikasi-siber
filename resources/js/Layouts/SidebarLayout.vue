@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue';
-import { Link, usePage } from '@inertiajs/vue3';
+import { Link, usePage, router } from '@inertiajs/vue3';
 
 defineProps({
     title: {
@@ -11,11 +11,56 @@ defineProps({
 
 const page = usePage();
 const user = computed(() => page.props.auth?.user);
+const activePawas = computed(() => ({
+    id: page.props.auth?.active_pawas_id,
+    name: page.props.auth?.active_pawas_name,
+    pangkat: page.props.auth?.active_pawas_pangkat,
+    nrp: page.props.auth?.active_pawas_nrp,
+}));
 const sidebarOpen = ref(false);
+const showSwitchModal = ref(false);
+const isSwitching = ref(false);
+
+const openSwitchModal = () => {
+    showSwitchModal.value = true;
+};
+
+const closeSwitchModal = () => {
+    showSwitchModal.value = false;
+};
+
+const confirmSwitchPawas = () => {
+    isSwitching.value = true;
+    router.post('/pawas/clear', {}, {
+        onFinish: () => {
+            isSwitching.value = false;
+            showSwitchModal.value = false;
+        }
+    });
+};
 
 // Navigation items
 const navigation = computed(() => {
-    const items = [
+    // admin_subdit sees Dashboard and Manajemen Kasus
+    if (user.value?.role === 'admin_subdit') {
+        return [
+            {
+                name: 'Dashboard',
+                href: '/subdit/dashboard',
+                icon: 'dashboard',
+                routeName: 'subdit.dashboard'
+            },
+            {
+                name: 'Manajemen Kasus',
+                href: '/min-ops',
+                icon: 'briefcase',
+                routeName: 'min-ops.index'
+            }
+        ];
+    }
+
+    // petugas sees Dashboard, Entry, Arsip
+    return [
         {
             name: 'Dashboard',
             href: '/dashboard',
@@ -35,18 +80,6 @@ const navigation = computed(() => {
             routeName: 'laporan.index'
         },
     ];
-
-    // Add "Manajemen Kasus" menu for admin_subdit role
-    if (user.value?.role === 'admin_subdit') {
-        items.push({
-            name: 'Manajemen Kasus',
-            href: '/min-ops',
-            icon: 'briefcase',
-            routeName: 'min-ops.index'
-        });
-    }
-
-    return items;
 });
 
 // Check if current route matches using URL path
@@ -57,6 +90,7 @@ const isActiveRoute = (routeName) => {
     // Map route names to paths
     const routePathMap = {
         'dashboard': '/dashboard',
+        'subdit.dashboard': '/subdit/dashboard',
         'laporan.create': '/laporan/create',
         'laporan.index': '/laporan',
         'min-ops.index': '/min-ops',
@@ -78,6 +112,11 @@ const isActiveRoute = (routeName) => {
     // For min-ops - starts with /min-ops
     if (routeName === 'min-ops.index') {
         return currentPath.startsWith('/min-ops');
+    }
+    
+    // For subdit dashboard - starts with /subdit
+    if (routeName === 'subdit.dashboard') {
+        return currentPath.startsWith('/subdit/dashboard');
     }
     
     // For dashboard - exact match
@@ -110,7 +149,7 @@ const currentDate = computed(() => {
         >
             <!-- Logo Section -->
             <div class="flex items-center justify-center h-20 border-b border-navy-700">
-                <Link href="/dashboard" class="flex items-center gap-3">
+                <Link :href="user?.role === 'admin_subdit' ? '/subdit/dashboard' : '/dashboard'" class="flex items-center gap-3">
                     <img
                         src="/images/siber_logo.png"
                         alt="Ditresiber Logo"
@@ -175,28 +214,65 @@ const currentDate = computed(() => {
             </nav>
 
             <!-- User Section at Bottom -->
-            <div v-if="user" class="absolute bottom-0 left-0 right-0 p-4 border-t border-navy-700">
-                <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-full bg-tactical-accent flex items-center justify-center text-white font-bold">
-                        {{ user.name?.charAt(0).toUpperCase() || 'U' }}
+            <div v-if="user" class="absolute bottom-0 left-0 right-0 border-t border-navy-700">
+                <!-- Active Pawas Info (for petugas role) -->
+                <div v-if="user.role === 'petugas' && activePawas.id" class="p-4 bg-navy-800 border-b border-navy-700">
+                    <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                        Identitas Aktif
                     </div>
-                    <div class="flex-1 min-w-0">
-                        <div class="text-sm font-medium text-white truncate">{{ user.name }}</div>
-                        <div class="text-xs text-gray-500 truncate">{{ user.email }}</div>
+                    <div class="bg-tactical-accent/20 border border-tactical-accent/30 rounded-lg p-3">
+                        <div class="flex items-start gap-3">
+                            <div class="w-8 h-8 rounded-full bg-tactical-accent flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                                {{ activePawas.name?.charAt(0).toUpperCase() || 'P' }}
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-sm font-semibold text-white truncate">
+                                    {{ activePawas.name }}
+                                </div>
+                                <div class="text-xs text-tactical-accent mt-0.5">
+                                    {{ activePawas.pangkat }} • {{ activePawas.nrp }}
+                                </div>
+                            </div>
+                        </div>
+                        <button
+                            @click="openSwitchModal"
+                            class="w-full mt-3 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs rounded transition-colors flex items-center justify-center gap-2"
+                        >
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                            </svg>
+                            Ganti Identitas
+                        </button>
                     </div>
-                    <Link
-                        href="/logout"
-                        method="post"
-                        as="button"
-                        class="p-2 text-gray-500 hover:text-white transition-colors"
-                        title="Logout"
-                    >
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-                            />
-                        </svg>
-                    </Link>
+                </div>
+
+                <!-- User Account Info -->
+                <div class="p-4">
+                    <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                        Akun Login
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-navy-700 flex items-center justify-center text-white font-bold">
+                            {{ user.username?.charAt(0).toUpperCase() || 'U' }}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="text-sm font-medium text-white truncate">{{ user.username }}</div>
+                            <div class="text-xs text-gray-500 capitalize">{{ user.role?.replace('_', ' ') }}</div>
+                        </div>
+                        <Link
+                            href="/logout"
+                            method="post"
+                            as="button"
+                            class="p-2 text-gray-500 hover:text-white transition-colors"
+                            title="Logout"
+                        >
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                                />
+                            </svg>
+                        </Link>
+                    </div>
                 </div>
             </div>
         </aside>
@@ -237,4 +313,108 @@ const currentDate = computed(() => {
             </main>
         </div>
     </div>
+
+    <!-- Switch Pawas Confirmation Modal -->
+    <Teleport to="body">
+        <Transition
+            enter-active-class="transition ease-out duration-200"
+            enter-from-class="opacity-0"
+            enter-to-class="opacity-100"
+            leave-active-class="transition ease-in duration-150"
+            leave-from-class="opacity-100"
+            leave-to-class="opacity-0"
+        >
+            <div v-if="showSwitchModal" class="fixed inset-0 z-[100] overflow-y-auto">
+                <!-- Backdrop -->
+                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm" @click="closeSwitchModal"></div>
+
+                <!-- Modal -->
+                <div class="flex min-h-full items-center justify-center p-4">
+                    <Transition
+                        enter-active-class="transition ease-out duration-200"
+                        enter-from-class="opacity-0 scale-95"
+                        enter-to-class="opacity-100 scale-100"
+                        leave-active-class="transition ease-in duration-150"
+                        leave-from-class="opacity-100 scale-100"
+                        leave-to-class="opacity-0 scale-95"
+                    >
+                        <div v-if="showSwitchModal" class="relative w-full max-w-md transform overflow-hidden rounded-2xl bg-gradient-to-br from-navy via-slate-800 to-navy border border-white/10 shadow-2xl">
+                            <!-- Header with Icon -->
+                            <div class="relative px-6 pt-8 pb-4 text-center">
+                                <!-- Icon Container -->
+                                <div class="mx-auto w-16 h-16 rounded-full bg-tactical-accent/20 border-2 border-tactical-accent flex items-center justify-center mb-4">
+                                    <svg class="w-8 h-8 text-tactical-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                                    </svg>
+                                </div>
+                                
+                                <h3 class="text-xl font-bold text-white mb-2">
+                                    Ganti Identitas Pawas?
+                                </h3>
+                                <p class="text-slate-300 text-sm">
+                                    Anda akan dialihkan ke halaman pemilihan identitas petugas piket.
+                                </p>
+                            </div>
+
+                            <!-- Current Identity Display -->
+                            <div class="px-6 pb-4" v-if="activePawas.name">
+                                <div class="bg-white/5 border border-white/10 rounded-xl p-4">
+                                    <div class="text-xs text-slate-400 uppercase tracking-wider mb-2">Identitas Saat Ini</div>
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 rounded-full bg-tactical-accent flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
+                                            {{ activePawas.name?.charAt(0).toUpperCase() }}
+                                        </div>
+                                        <div class="flex-1 min-w-0">
+                                            <div class="font-semibold text-white truncate">
+                                                {{ activePawas.name }}
+                                            </div>
+                                            <div class="text-sm text-tactical-accent">
+                                                {{ activePawas.pangkat }} • {{ activePawas.nrp }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Action Buttons -->
+                            <div class="px-6 pb-6 flex gap-3">
+                                <button
+                                    @click="closeSwitchModal"
+                                    :disabled="isSwitching"
+                                    class="flex-1 px-4 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Batal
+                                </button>
+                                <button
+                                    @click="confirmSwitchPawas"
+                                    :disabled="isSwitching"
+                                    class="flex-1 px-4 py-3 bg-tactical-accent hover:bg-tactical-accent-dark text-white rounded-xl font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                >
+                                    <svg v-if="isSwitching" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                    </svg>
+                                    <span>{{ isSwitching ? 'Memproses...' : 'Ya, Ganti' }}</span>
+                                </button>
+                            </div>
+
+                            <!-- Close Button (X) -->
+                            <button
+                                @click="closeSwitchModal"
+                                :disabled="isSwitching"
+                                class="absolute top-4 right-4 p-1 text-slate-400 hover:text-white transition-colors disabled:opacity-50"
+                            >
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                    </Transition>
+                </div>
+            </div>
+        </Transition>
+    </Teleport>
 </template>

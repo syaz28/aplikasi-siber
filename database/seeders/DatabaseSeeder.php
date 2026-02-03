@@ -24,15 +24,17 @@ class DatabaseSeeder extends Seeder
             // Master Data (no dependencies)
             WilayahSeeder::class,
             PangkatSeeder::class,
-            JabatanSeeder::class,
             MasterPlatformSeeder::class, // Platform for identitas tersangka
             MasterCountrySeeder::class,  // Countries and phone codes for WNA and phone input
             
             // Crime categories (no dependencies)
             KategoriKejahatanSeeder::class,
             
-            // Personnel (depends on Pangkat, Jabatan)
-            AnggotaSeeder::class,
+            // User accounts (shared accounts for login)
+            UserSeeder::class,
+            
+            // Personnel data (for Pawas selection)
+            PersonelSeeder::class,
         ]);
 
         $this->command->info('================================');

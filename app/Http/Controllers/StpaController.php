@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Laporan;
-use App\Services\StpaFpdiService;
+use App\Services\StpaPdfService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Log;
  * StpaController
  * 
  * Handles STPA (Surat Tanda Penerimaan Aduan) PDF generation
- * Uses FPDI to fill PDF template with laporan data
+ * Uses FPDF to generate clean PDF documents
  */
 class StpaController extends Controller
 {
@@ -24,6 +24,10 @@ class StpaController extends Controller
         'pelapor.alamatKtp.kabupaten',
         'pelapor.alamatKtp.kecamatan',
         'pelapor.alamatKtp.kelurahan',
+        'pelapor.alamatDomisili.provinsi',
+        'pelapor.alamatDomisili.kabupaten',
+        'pelapor.alamatDomisili.kecamatan',
+        'pelapor.alamatDomisili.kelurahan',
         'korban.orang',
         'tersangka.identitas',
         'kategoriKejahatan',
@@ -33,7 +37,7 @@ class StpaController extends Controller
     /**
      * Generate and download STPA PDF
      */
-    public function cetakPdf(Request $request, int $id, StpaFpdiService $pdfService): Response
+    public function cetakPdf(Request $request, int $id, StpaPdfService $pdfService): Response
     {
         $laporan = Laporan::with($this->eagerLoads)->findOrFail($id);
 
@@ -74,7 +78,7 @@ class StpaController extends Controller
     /**
      * Preview STPA PDF in browser
      */
-    public function preview(int $id, StpaFpdiService $pdfService): Response
+    public function preview(int $id, StpaPdfService $pdfService): Response
     {
         $laporan = Laporan::with($this->eagerLoads)->findOrFail($id);
 
@@ -98,7 +102,7 @@ class StpaController extends Controller
     /**
      * Download STPA PDF
      */
-    public function download(int $id, StpaFpdiService $pdfService): Response
+    public function download(int $id, StpaPdfService $pdfService): Response
     {
         $laporan = Laporan::with($this->eagerLoads)->findOrFail($id);
 

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminKategoriController;
 use App\Http\Controllers\Admin\AdminLaporanController;
+use App\Http\Controllers\Admin\AdminPersonelController;
 use App\Http\Controllers\Admin\AdminUserController;
 use Illuminate\Support\Facades\Route;
 
@@ -11,7 +12,7 @@ use Illuminate\Support\Facades\Route;
 | Admin Routes
 |--------------------------------------------------------------------------
 |
-| Routes untuk halaman admin (kelola user, assign laporan ke subdit)
+| Routes untuk halaman admin (kelola personel, assign laporan ke subdit)
 | Hanya dapat diakses oleh user dengan role: admin
 |
 */
@@ -21,7 +22,10 @@ Route::middleware(['auth', 'verified', 'role:admin'])->prefix('admin')->name('ad
     // Admin Dashboard
     Route::get('/', [AdminDashboardController::class, 'index'])->name('dashboard');
     
-    // Kelola User (CRUD)
+    // Kelola Personel (CRUD) - NEW: Replaces User Management
+    Route::resource('personels', AdminPersonelController::class);
+    
+    // Legacy: Kelola User (CRUD) - Keep for reference but hidden from nav
     Route::resource('users', AdminUserController::class);
     Route::post('users/{user}/reset-password', [AdminUserController::class, 'resetPassword'])
         ->name('users.reset-password');

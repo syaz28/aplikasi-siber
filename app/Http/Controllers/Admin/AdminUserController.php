@@ -26,14 +26,10 @@ class AdminUserController extends Controller
         $query = User::query()
             ->orderBy('created_at', 'desc');
 
-        // Search by name, email, or nrp
+        // Search by username
         if ($request->filled('search')) {
             $search = $request->input('search');
-            $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                    ->orWhere('email', 'like', "%{$search}%")
-                    ->orWhere('nrp', 'like', "%{$search}%");
-            });
+            $query->where('username', 'like', "%{$search}%");
         }
 
         // Filter by role
@@ -53,7 +49,6 @@ class AdminUserController extends Controller
             'filters' => $request->only(['search', 'role', 'subdit']),
             'roleOptions' => self::getRoleOptions(),
             'subditOptions' => self::getSubditOptions(),
-            'unitOptions' => self::getUnitOptions(),
         ]);
     }
 
@@ -65,8 +60,6 @@ class AdminUserController extends Controller
         return Inertia::render('Admin/Users/Create', [
             'roleOptions' => self::getRoleOptions(),
             'subditOptions' => self::getSubditOptions(),
-            'unitOptions' => self::getUnitOptions(),
-            'pangkatOptions' => Pangkat::getDropdownOptions(),
         ]);
     }
 
@@ -76,52 +69,40 @@ class AdminUserController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'nrp' => 'required|string|max:50|unique:users,nrp',
-            'email' => 'nullable|email|unique:users,email',
-            'pangkat' => 'nullable|string|max:20',
+            'username' => 'required|string|max:255|unique:users,username',
+            'password' => 'required|string|min:6',
             'role' => 'required|in:admin,petugas,admin_subdit,pimpinan',
             'subdit' => [
                 'nullable',
                 'integer',
                 'between:1,3',
-                Rule::requiredIf(fn () => in_array($request->role, ['admin_subdit', 'petugas'])),
-            ],
-            'unit' => [
-                'nullable',
-                'integer',
-                'between:1,5',
-                Rule::requiredIf(fn () => $request->role === 'petugas'),
+                Rule::requiredIf(fn () => $request->role === 'admin_subdit'),
             ],
             'is_active' => 'boolean',
         ], [
-            'name.required' => 'Nama wajib diisi',
-            'nrp.required' => 'NRP wajib diisi',
-            'nrp.unique' => 'NRP sudah terdaftar',
+            'username.required' => 'Username wajib diisi',
+            'username.unique' => 'Username sudah terdaftar',
+            'password.required' => 'Password wajib diisi',
+            'password.min' => 'Password minimal 6 karakter',
             'role.required' => 'Role wajib dipilih',
             'role.in' => 'Role tidak valid',
-            'subdit.required' => 'Subdit wajib dipilih untuk role ini',
+            'subdit.required' => 'Subdit wajib dipilih untuk role Admin Subdit',
             'subdit.between' => 'Subdit harus antara 1-3',
-            'unit.required' => 'Unit wajib dipilih untuk role Petugas',
-            'unit.between' => 'Unit harus antara 1-5',
         ]);
 
-        // Set default password to NRP
-        $validated['password'] = Hash::make($validated['nrp']);
+        // Hash password
+        $validated['password'] = Hash::make($validated['password']);
         $validated['is_active'] = $validated['is_active'] ?? true;
 
-        // Clear subdit/unit based on role
-        if ($validated['role'] === 'admin' || $validated['role'] === 'pimpinan') {
+        // Clear subdit based on role
+        if ($validated['role'] !== 'admin_subdit') {
             $validated['subdit'] = null;
-            $validated['unit'] = null;
-        } elseif ($validated['role'] === 'admin_subdit') {
-            $validated['unit'] = null;
         }
 
         User::create($validated);
 
         return redirect()->route('admin.users.index')
-            ->with('success', 'User berhasil ditambahkan. Password default: NRP');
+            ->with('success', 'User berhasil ditambahkan');
     }
 
     /**
@@ -133,8 +114,6 @@ class AdminUserController extends Controller
             'user' => $user,
             'roleOptions' => self::getRoleOptions(),
             'subditOptions' => self::getSubditOptions(),
-            'unitOptions' => self::getUnitOptions(),
-            'pangkatOptions' => Pangkat::getDropdownOptions(),
         ]);
     }
 
@@ -144,40 +123,26 @@ class AdminUserController extends Controller
     public function update(Request $request, User $user)
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'nrp' => ['required', 'string', 'max:50', Rule::unique('users', 'nrp')->ignore($user->id)],
-            'email' => ['nullable', 'email', Rule::unique('users', 'email')->ignore($user->id)],
-            'pangkat' => 'nullable|string|max:20',
+            'username' => ['required', 'string', 'max:255', Rule::unique('users', 'username')->ignore($user->id)],
             'role' => 'required|in:admin,petugas,admin_subdit,pimpinan',
             'subdit' => [
                 'nullable',
                 'integer',
                 'between:1,3',
-                Rule::requiredIf(fn () => in_array($request->role, ['admin_subdit', 'petugas'])),
-            ],
-            'unit' => [
-                'nullable',
-                'integer',
-                'between:1,5',
-                Rule::requiredIf(fn () => $request->role === 'petugas'),
+                Rule::requiredIf(fn () => $request->role === 'admin_subdit'),
             ],
             'is_active' => 'boolean',
             'password' => 'nullable|string|min:6',
         ], [
-            'name.required' => 'Nama wajib diisi',
-            'nrp.required' => 'NRP wajib diisi',
-            'nrp.unique' => 'NRP sudah terdaftar',
+            'username.required' => 'Username wajib diisi',
+            'username.unique' => 'Username sudah terdaftar',
             'role.required' => 'Role wajib dipilih',
-            'subdit.required' => 'Subdit wajib dipilih untuk role ini',
-            'unit.required' => 'Unit wajib dipilih untuk role Petugas',
+            'subdit.required' => 'Subdit wajib dipilih untuk role Admin Subdit',
         ]);
 
-        // Clear subdit/unit based on role
-        if ($validated['role'] === 'admin' || $validated['role'] === 'pimpinan') {
+        // Clear subdit based on role
+        if ($validated['role'] !== 'admin_subdit') {
             $validated['subdit'] = null;
-            $validated['unit'] = null;
-        } elseif ($validated['role'] === 'admin_subdit') {
-            $validated['unit'] = null;
         }
 
         // Hash password if provided
@@ -210,15 +175,15 @@ class AdminUserController extends Controller
     }
 
     /**
-     * Reset user password to NRP.
+     * Reset user password to username.
      */
     public function resetPassword(User $user)
     {
         $user->update([
-            'password' => Hash::make($user->nrp),
+            'password' => Hash::make($user->username),
         ]);
 
-        return back()->with('success', 'Password berhasil direset ke NRP');
+        return back()->with('success', 'Password berhasil direset ke username');
     }
 
     /**

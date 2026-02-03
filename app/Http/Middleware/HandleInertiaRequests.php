@@ -33,10 +33,15 @@ class HandleInertiaRequests extends Middleware
             ...parent::share($request),
             'auth' => [
                 'user' => $request->user(),
+                'active_pawas_id' => $request->session()->get('active_pawas_id'),
+                'active_pawas_name' => $request->session()->get('active_pawas_name'),
+                'active_pawas_pangkat' => $request->session()->get('active_pawas_pangkat'),
+                'active_pawas_nrp' => $request->session()->get('active_pawas_nrp'),
             ],
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),
+                'info' => fn () => $request->session()->get('info'),
             ],
         ];
     }
