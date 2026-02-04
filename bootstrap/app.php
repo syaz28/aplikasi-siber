@@ -21,6 +21,36 @@ return Application::configure(basePath: dirname(__DIR__))
             \Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets::class,
         ]);
 
+        // Exclude routes from CSRF verification
+        // These routes are protected by 'auth' middleware instead
+        $middleware->validateCsrfTokens(except: [
+            // Auth routes
+            'logout',
+            'login',
+            'register',
+            'confirm-password',
+            'reset-password',
+            'forgot-password',
+            'email/verification-notification',
+            'password',
+            
+            // Admin routes
+            'admin/*',
+            
+            // User management
+            'users/*',
+            
+            // Laporan routes
+            'laporan/*',
+            
+            // Pawas routes
+            'pawas/*',
+            
+            // Admin Subdit routes
+            'min-ops/*',
+            'subdit/*',
+        ]);
+
         // Register custom middleware aliases
         $middleware->alias([
             'role' => \App\Http\Middleware\CheckRole::class,
