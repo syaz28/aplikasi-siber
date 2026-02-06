@@ -24,8 +24,10 @@ class DatabaseSeeder extends Seeder
             // Master Data (no dependencies)
             WilayahSeeder::class,
             PangkatSeeder::class,
-            MasterPlatformSeeder::class, // Platform for identitas tersangka
-            MasterCountrySeeder::class,  // Countries and phone codes for WNA and phone input
+            MasterPlatformSeeder::class,    // Platform for identitas tersangka
+            MasterCountrySeeder::class,     // Countries and phone codes for WNA and phone input
+            MasterPekerjaanSeeder::class,   // Daftar pekerjaan
+            MasterPendidikanSeeder::class,  // Daftar pendidikan
             
             // Crime categories (no dependencies)
             KategoriKejahatanSeeder::class,
