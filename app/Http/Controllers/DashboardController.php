@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Korban;
 use App\Models\Laporan;
+use App\Models\Tersangka;
 use App\Models\Wilayah;
 use App\Models\KategoriKejahatan;
 use App\Models\IdentitasTersangka;
@@ -101,13 +102,65 @@ class DashboardController extends Controller
                 'total_kerugian' => $l->korban->sum('kerugian_nominal'),
             ]);
         
+        // =============================================
+        // F. TERSANGKA SUMMARY
+        // =============================================
+        $tersangkaSummary = $this->getTersangkaSummary();
+        
         return Inertia::render('Dashboard', [
             'metrics' => $metrics,
             'weeklyTrend' => $weeklyTrend,
             'platformDistribution' => $platformDistribution,
             'categoryDistribution' => $categoryDistribution,
             'recentReports' => $recentReports,
+            'tersangkaSummary' => $tersangkaSummary,
         ]);
+    }
+    
+    /**
+     * Get tersangka summary for dashboard
+     */
+    private function getTersangkaSummary(): array
+    {
+        $total = Tersangka::count();
+        $unidentified = Tersangka::whereNull('orang_id')->count();
+        
+        // Get linked tersangka count
+        $linkedIdentities = IdentitasTersangka::select('jenis', 'nilai', DB::raw('COUNT(*) as count'))
+            ->groupBy('jenis', 'nilai')
+            ->having('count', '>', 1)
+            ->get();
+
+        $linkedTersangkaIds = collect();
+        foreach ($linkedIdentities as $dup) {
+            $ids = IdentitasTersangka::where('jenis', $dup->jenis)
+                ->where('nilai', $dup->nilai)
+                ->pluck('tersangka_id');
+            $linkedTersangkaIds = $linkedTersangkaIds->merge($ids);
+        }
+        $linkedCount = $linkedTersangkaIds->unique()->count();
+        
+        // Top 5 repeated identities (potential serial offenders)
+        $topRepeatedIdentities = IdentitasTersangka::select('jenis', 'nilai', 'platform', DB::raw('COUNT(*) as count'))
+            ->groupBy('jenis', 'nilai', 'platform')
+            ->having('count', '>', 1)
+            ->orderByDesc('count')
+            ->limit(5)
+            ->get()
+            ->map(fn($i) => [
+                'jenis' => $i->jenis,
+                'nilai' => $i->nilai,
+                'platform' => $i->platform,
+                'count' => $i->count,
+            ]);
+        
+        return [
+            'total' => $total,
+            'unidentified' => $unidentified,
+            'linked' => $linkedCount,
+            'linked_groups' => $linkedIdentities->count(),
+            'top_repeated' => $topRepeatedIdentities->toArray(),
+        ];
     }
     
     /**

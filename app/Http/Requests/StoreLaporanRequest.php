@@ -54,7 +54,7 @@ class StoreLaporanRequest extends FormRequest
             'pelapor.nama' => 'required|string|max:100',
             'pelapor.tempat_lahir' => 'required|string|max:100',
             'pelapor.tanggal_lahir' => 'required|date|before:today',
-            'pelapor.jenis_kelamin' => 'required|in:Laki-laki,Perempuan',
+            'pelapor.jenis_kelamin' => 'required|in:LAKI-LAKI,PEREMPUAN',
             'pelapor.pekerjaan' => 'required|string|max:100',
             'pelapor.telepon' => [
                 'required',
@@ -109,7 +109,7 @@ class StoreLaporanRequest extends FormRequest
             'korban.*.orang.nama' => 'required|string|max:100',
             'korban.*.orang.tempat_lahir' => 'required|string|max:100',
             'korban.*.orang.tanggal_lahir' => 'required|date|before:today',
-            'korban.*.orang.jenis_kelamin' => 'required|in:Laki-laki,Perempuan',
+            'korban.*.orang.jenis_kelamin' => 'required|in:LAKI-LAKI,PEREMPUAN',
             'korban.*.orang.pekerjaan' => 'required|string|max:100',
             'korban.*.orang.telepon' => [
                 'required',
@@ -130,7 +130,7 @@ class StoreLaporanRequest extends FormRequest
             'tersangka.*.orang.nama' => 'nullable|string|max:100',
             'tersangka.*.orang.tempat_lahir' => 'nullable|string|max:100',
             'tersangka.*.orang.tanggal_lahir' => 'nullable|date|before:today',
-            'tersangka.*.orang.jenis_kelamin' => 'nullable|in:Laki-laki,Perempuan',
+            'tersangka.*.orang.jenis_kelamin' => 'nullable|in:LAKI-LAKI,PEREMPUAN',
             'tersangka.*.orang.pekerjaan' => 'nullable|string|max:100',
             'tersangka.*.orang.telepon' => 'nullable|string|max:20',
             'tersangka.*.catatan' => 'nullable|string|max:1000',

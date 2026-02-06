@@ -18,7 +18,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property string $nama Nama lengkap
  * @property string $tempat_lahir Tempat lahir
  * @property \Carbon\Carbon $tanggal_lahir Tanggal lahir
- * @property string $jenis_kelamin Laki-laki|Perempuan
+ * @property string $jenis_kelamin LAKI-LAKI|PEREMPUAN
  * @property string $pekerjaan Pekerjaan
  * @property string $telepon Nomor telepon (encrypted)
  * @property string|null $email Email opsional

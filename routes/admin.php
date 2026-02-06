@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\AdminKategoriController;
 use App\Http\Controllers\Admin\AdminLaporanController;
 use App\Http\Controllers\Admin\AdminPersonelController;
 use App\Http\Controllers\Admin\AdminUserController;
+use App\Http\Controllers\OrangController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -39,4 +40,8 @@ Route::middleware(['auth', 'verified', 'role:admin'])->prefix('admin')->name('ad
     Route::get('laporan', [AdminLaporanController::class, 'index'])->name('laporan.index');
     Route::get('laporan/{laporan}', [AdminLaporanController::class, 'show'])->name('laporan.show');
     Route::post('laporan/{laporan}/assign', [AdminLaporanController::class, 'assignSubdit'])->name('laporan.assign');
+    
+    // Daftar Orang
+    Route::get('orang', [OrangController::class, 'index'])->name('orang.index');
+    Route::get('orang/{id}', [OrangController::class, 'show'])->name('orang.show');
 });

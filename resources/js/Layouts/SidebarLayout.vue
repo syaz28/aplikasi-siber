@@ -41,7 +41,7 @@ const confirmSwitchPawas = () => {
 
 // Navigation items
 const navigation = computed(() => {
-    // admin_subdit sees Dashboard and Manajemen Kasus
+    // admin_subdit sees Dashboard, Manajemen Kasus, Daftar Orang, Daftar Tersangka
     if (user.value?.role === 'admin_subdit') {
         return [
             {
@@ -55,11 +55,23 @@ const navigation = computed(() => {
                 href: '/min-ops',
                 icon: 'briefcase',
                 routeName: 'min-ops.index'
+            },
+            {
+                name: 'Daftar Orang',
+                href: '/subdit/orang',
+                icon: 'users',
+                routeName: 'subdit.orang.index'
+            },
+            {
+                name: 'Daftar Tersangka',
+                href: '/subdit/tersangka',
+                icon: 'exclamation',
+                routeName: 'subdit.tersangka.index'
             }
         ];
     }
 
-    // petugas sees Dashboard, Entry, Arsip
+    // petugas sees Dashboard, Entry, Arsip, Daftar Orang, Daftar Tersangka
     return [
         {
             name: 'Dashboard',
@@ -79,6 +91,18 @@ const navigation = computed(() => {
             icon: 'archive',
             routeName: 'laporan.index'
         },
+        {
+            name: 'Daftar Orang',
+            href: '/orang',
+            icon: 'users',
+            routeName: 'orang.index'
+        },
+        {
+            name: 'Daftar Tersangka',
+            href: '/tersangka',
+            icon: 'exclamation',
+            routeName: 'tersangka.index'
+        },
     ];
 });
 
@@ -94,6 +118,10 @@ const isActiveRoute = (routeName) => {
         'laporan.create': '/laporan/create',
         'laporan.index': '/laporan',
         'min-ops.index': '/min-ops',
+        'orang.index': '/orang',
+        'subdit.orang.index': '/subdit/orang',
+        'tersangka.index': '/tersangka',
+        'subdit.tersangka.index': '/subdit/tersangka',
     };
     
     const targetPath = routePathMap[routeName];
@@ -114,9 +142,29 @@ const isActiveRoute = (routeName) => {
         return currentPath.startsWith('/min-ops');
     }
     
-    // For subdit dashboard - starts with /subdit
+    // For subdit dashboard - starts with /subdit/dashboard
     if (routeName === 'subdit.dashboard') {
         return currentPath.startsWith('/subdit/dashboard');
+    }
+    
+    // For orang - starts with /orang
+    if (routeName === 'orang.index') {
+        return currentPath.startsWith('/orang');
+    }
+    
+    // For subdit orang - starts with /subdit/orang
+    if (routeName === 'subdit.orang.index') {
+        return currentPath.startsWith('/subdit/orang');
+    }
+    
+    // For tersangka - starts with /tersangka
+    if (routeName === 'tersangka.index') {
+        return currentPath.startsWith('/tersangka');
+    }
+    
+    // For subdit tersangka - starts with /subdit/tersangka
+    if (routeName === 'subdit.tersangka.index') {
+        return currentPath.startsWith('/subdit/tersangka');
     }
     
     // For dashboard - exact match
@@ -205,6 +253,12 @@ const currentDate = computed(() => {
                             <svg v-else-if="item.icon === 'briefcase'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                     d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                                />
+                            </svg>
+                            <!-- Exclamation Icon (Daftar Tersangka) -->
+                            <svg v-else-if="item.icon === 'exclamation'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
                                 />
                             </svg>
                             <span class="font-medium">{{ item.name }}</span>

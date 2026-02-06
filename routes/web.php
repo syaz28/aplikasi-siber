@@ -5,6 +5,8 @@ use App\Http\Controllers\AdminSubdit\CaseManagementController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\LaporanController;
 use App\Http\Controllers\MasterDataController;
+use App\Http\Controllers\OrangController;
+use App\Http\Controllers\TersangkaController;
 use App\Http\Controllers\PawasController;
 use App\Http\Controllers\Pimpinan\PimpinanDashboardController;
 use App\Http\Controllers\ProfileController;
@@ -134,7 +136,32 @@ Route::middleware(['auth', 'verified', 'role:petugas', 'pawas.selected'])->group
             ->name('countries');
         Route::get('phone-codes', [MasterDataController::class, 'getPhoneCodes'])
             ->name('phone-codes');
+        
+        // Search Orang by NIK (for auto-fill pelapor/korban)
+        Route::get('orang/search-nik', [MasterDataController::class, 'searchOrangByNik'])
+            ->name('orang.search-nik');
     });
+
+    // ============================================
+    // DAFTAR ORANG
+    // ============================================
+    
+    Route::get('/orang', [OrangController::class, 'index'])->name('orang.index');
+    Route::get('/orang/{id}', [OrangController::class, 'show'])->name('orang.show');
+
+    // ============================================
+    // DAFTAR TERSANGKA
+    // ============================================
+    
+    Route::get('/tersangka', [TersangkaController::class, 'index'])->name('tersangka.index');
+    Route::get('/tersangka/search-orang', [TersangkaController::class, 'searchOrang'])->name('tersangka.search-orang');
+    Route::get('/tersangka/jenis-options', [TersangkaController::class, 'getJenisOptions'])->name('tersangka.jenis-options');
+    Route::get('/tersangka/{id}', [TersangkaController::class, 'show'])->name('tersangka.show');
+    Route::post('/tersangka/{id}/identify', [TersangkaController::class, 'identify'])->name('tersangka.identify');
+    Route::delete('/tersangka/{id}/unidentify', [TersangkaController::class, 'unidentify'])->name('tersangka.unidentify');
+    Route::post('/tersangka/{id}/identity', [TersangkaController::class, 'addIdentity'])->name('tersangka.add-identity');
+    Route::put('/tersangka/{id}/identity/{identityId}', [TersangkaController::class, 'updateIdentity'])->name('tersangka.update-identity');
+    Route::delete('/tersangka/{id}/identity/{identityId}', [TersangkaController::class, 'deleteIdentity'])->name('tersangka.delete-identity');
 
     // ============================================
     // PROFILE (Laravel Breeze default)
@@ -155,6 +182,21 @@ Route::middleware(['auth', 'verified', 'role:admin_subdit'])->prefix('subdit')->
     // Dashboard (Unit Management Focus)
     Route::get('/dashboard', [AdminSubditDashboardController::class, 'index'])->name('dashboard');
     Route::patch('/dashboard/{id}/assign-unit', [AdminSubditDashboardController::class, 'assignUnit'])->name('assign-unit');
+    
+    // Daftar Orang
+    Route::get('/orang', [OrangController::class, 'index'])->name('orang.index');
+    Route::get('/orang/{id}', [OrangController::class, 'show'])->name('orang.show');
+    
+    // Daftar Tersangka
+    Route::get('/tersangka', [TersangkaController::class, 'index'])->name('tersangka.index');
+    Route::get('/tersangka/search-orang', [TersangkaController::class, 'searchOrang'])->name('tersangka.search-orang');
+    Route::get('/tersangka/jenis-options', [TersangkaController::class, 'getJenisOptions'])->name('tersangka.jenis-options');
+    Route::get('/tersangka/{id}', [TersangkaController::class, 'show'])->name('tersangka.show');
+    Route::post('/tersangka/{id}/identify', [TersangkaController::class, 'identify'])->name('tersangka.identify');
+    Route::delete('/tersangka/{id}/unidentify', [TersangkaController::class, 'unidentify'])->name('tersangka.unidentify');
+    Route::post('/tersangka/{id}/identity', [TersangkaController::class, 'addIdentity'])->name('tersangka.add-identity');
+    Route::put('/tersangka/{id}/identity/{identityId}', [TersangkaController::class, 'updateIdentity'])->name('tersangka.update-identity');
+    Route::delete('/tersangka/{id}/identity/{identityId}', [TersangkaController::class, 'deleteIdentity'])->name('tersangka.delete-identity');
 });
 
 Route::middleware(['auth', 'verified', 'role:admin_subdit'])->prefix('min-ops')->name('min-ops.')->group(function () {
@@ -175,6 +217,21 @@ Route::middleware(['auth', 'verified', 'role:pimpinan'])->prefix('pimpinan')->na
     
     // Executive Dashboard - Profiling & Demographics
     Route::get('/dashboard', [PimpinanDashboardController::class, 'index'])->name('dashboard');
+    
+    // Daftar Orang
+    Route::get('/orang', [OrangController::class, 'index'])->name('orang.index');
+    Route::get('/orang/{id}', [OrangController::class, 'show'])->name('orang.show');
+    
+    // Daftar Tersangka
+    Route::get('/tersangka', [TersangkaController::class, 'index'])->name('tersangka.index');
+    Route::get('/tersangka/search-orang', [TersangkaController::class, 'searchOrang'])->name('tersangka.search-orang');
+    Route::get('/tersangka/jenis-options', [TersangkaController::class, 'getJenisOptions'])->name('tersangka.jenis-options');
+    Route::get('/tersangka/{id}', [TersangkaController::class, 'show'])->name('tersangka.show');
+    Route::post('/tersangka/{id}/identify', [TersangkaController::class, 'identify'])->name('tersangka.identify');
+    Route::delete('/tersangka/{id}/unidentify', [TersangkaController::class, 'unidentify'])->name('tersangka.unidentify');
+    Route::post('/tersangka/{id}/identity', [TersangkaController::class, 'addIdentity'])->name('tersangka.add-identity');
+    Route::put('/tersangka/{id}/identity/{identityId}', [TersangkaController::class, 'updateIdentity'])->name('tersangka.update-identity');
+    Route::delete('/tersangka/{id}/identity/{identityId}', [TersangkaController::class, 'deleteIdentity'])->name('tersangka.delete-identity');
 });
 
 // Auth routes (Laravel Breeze)

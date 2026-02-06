@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { Head, router } from '@inertiajs/vue3';
 // Use window.axios which has CSRF token configured in bootstrap.js
 const axios = window.axios;
@@ -13,6 +13,7 @@ import ReviewSummary from '@/Components/ReviewSummary.vue';
 import ToastContainer from '@/Components/ToastContainer.vue';
 import { useToast } from '@/Composables/useToast';
 import { useFormStorage, formatUtils } from '@/Composables/useFormStorage';
+import { usePersonDataParser } from '@/Composables/usePersonDataParser';
 
 // Props from controller
 defineProps({
@@ -20,9 +21,10 @@ defineProps({
     hubunganPelaporOptions: Object,
 });
 
-// Toast & Storage
+// Toast & Storage & Person Data Parser
 const toast = useToast();
 const storage = useFormStorage();
+const personParser = usePersonDataParser();
 
 // Current step (0-3, step 3 = review) - Step 1 (Administrasi) removed
 const currentStep = ref(0);
@@ -31,6 +33,12 @@ const isSuccess = ref(false);
 const errors = ref({});
 const apiError = ref(null);
 const showDraftModal = ref(false);
+
+// Auto-save countdown timer
+const AUTO_SAVE_INTERVAL = 30; // seconds
+const autoSaveCountdown = ref(AUTO_SAVE_INTERVAL);
+const lastSaveTime = ref(null);
+let countdownInterval = null;
 
 const masterData = reactive({
     provinsi: [],
@@ -87,7 +95,7 @@ const getDefaultForm = () => ({
         nama: '',
         tempat_lahir: '',
         tanggal_lahir: '',
-        jenis_kelamin: 'Laki-laki',
+        jenis_kelamin: 'LAKI-LAKI',
         pekerjaan: '',
         pendidikan: '', // Pendidikan terakhir
         telepon: '',
@@ -130,7 +138,7 @@ const getDefaultForm = () => ({
             nama: '',
             tempat_lahir: '',
             tanggal_lahir: '',
-            jenis_kelamin: 'Laki-laki',
+            jenis_kelamin: 'LAKI-LAKI',
             pekerjaan: '',
             pendidikan: '', // Pendidikan terakhir
             telepon: '',
@@ -152,6 +160,316 @@ const form = reactive(getDefaultForm());
 
 // Checkbox for "Pelapor adalah Korban"
 const pelaporAdalahKorban = ref(true);
+
+// NIK Search for auto-fill pelapor
+const nikSearchState = reactive({
+    isSearching: false,
+    found: false,
+    notFound: false,
+    foundData: null,
+    message: '',
+});
+
+// Search orang by NIK/Passport and auto-fill form
+const searchOrangByNik = async () => {
+    const nik = form.pelapor.nik;
+    const isWNI = form.pelapor.kewarganegaraan === 'WNI';
+    const minLength = isWNI ? 10 : 5;
+    const identityLabel = isWNI ? 'NIK' : 'No. Paspor/ID';
+    
+    if (!nik || nik.length < minLength) {
+        toast.warning(`${identityLabel} harus minimal ${minLength} karakter untuk pencarian`);
+        return;
+    }
+    
+    nikSearchState.isSearching = true;
+    nikSearchState.found = false;
+    nikSearchState.notFound = false;
+    nikSearchState.message = '';
+    
+    try {
+        const res = await axios.get('/api/master/orang/search-nik', {
+            params: { nik }
+        });
+        
+        if (res.data.success && res.data.found) {
+            nikSearchState.found = true;
+            nikSearchState.foundData = res.data.data;
+            nikSearchState.message = 'Data ditemukan! Klik "Gunakan Data" untuk mengisi otomatis.';
+        } else {
+            nikSearchState.notFound = true;
+            nikSearchState.message = 'Data tidak ditemukan. Silakan isi data secara manual.';
+        }
+    } catch (error) {
+        console.error('Error searching NIK:', error);
+        nikSearchState.notFound = true;
+        nikSearchState.message = 'Terjadi kesalahan saat mencari data.';
+    } finally {
+        nikSearchState.isSearching = false;
+    }
+};
+
+// Auto-fill pelapor form from found data
+const autoFillPelapor = async () => {
+    const data = nikSearchState.foundData;
+    if (!data) return;
+    
+    // Fill basic info
+    form.pelapor.nik = data.nik || '';
+    form.pelapor.nama = data.nama || '';
+    form.pelapor.kewarganegaraan = data.kewarganegaraan || 'WNI';
+    form.pelapor.negara_asal = data.negara_asal || '';
+    form.pelapor.tempat_lahir = data.tempat_lahir || '';
+    form.pelapor.tanggal_lahir = data.tanggal_lahir || '';
+    form.pelapor.jenis_kelamin = data.jenis_kelamin || 'LAKI-LAKI';
+    form.pelapor.pekerjaan = data.pekerjaan || '';
+    form.pelapor.pendidikan = data.pendidikan || '';
+    form.pelapor.telepon = data.telepon || '';
+    
+    // Fill alamat KTP if available
+    if (data.alamat_ktp) {
+        // Load wilayah cascade for KTP address
+        if (data.alamat_ktp.kode_provinsi) {
+            form.pelapor.alamat_ktp.kode_provinsi = data.alamat_ktp.kode_provinsi;
+            await loadKabupaten(data.alamat_ktp.kode_provinsi);
+            
+            if (data.alamat_ktp.kode_kabupaten) {
+                form.pelapor.alamat_ktp.kode_kabupaten = data.alamat_ktp.kode_kabupaten;
+                await loadKecamatan(data.alamat_ktp.kode_kabupaten);
+                
+                if (data.alamat_ktp.kode_kecamatan) {
+                    form.pelapor.alamat_ktp.kode_kecamatan = data.alamat_ktp.kode_kecamatan;
+                    await loadKelurahan(data.alamat_ktp.kode_kecamatan);
+                    
+                    if (data.alamat_ktp.kode_kelurahan) {
+                        form.pelapor.alamat_ktp.kode_kelurahan = data.alamat_ktp.kode_kelurahan;
+                    }
+                }
+            }
+        }
+        form.pelapor.alamat_ktp.detail_alamat = data.alamat_ktp.detail_alamat || '';
+    }
+    
+    // Fill alamat domisili if available
+    if (data.alamat_domisili) {
+        if (data.alamat_domisili.kode_provinsi) {
+            form.pelapor.alamat_domisili.kode_provinsi = data.alamat_domisili.kode_provinsi;
+            await loadKabupatenDomisili(data.alamat_domisili.kode_provinsi);
+            
+            if (data.alamat_domisili.kode_kabupaten) {
+                form.pelapor.alamat_domisili.kode_kabupaten = data.alamat_domisili.kode_kabupaten;
+                await loadKecamatanDomisili(data.alamat_domisili.kode_kabupaten);
+                
+                if (data.alamat_domisili.kode_kecamatan) {
+                    form.pelapor.alamat_domisili.kode_kecamatan = data.alamat_domisili.kode_kecamatan;
+                    await loadKelurahanDomisili(data.alamat_domisili.kode_kecamatan);
+                    
+                    if (data.alamat_domisili.kode_kelurahan) {
+                        form.pelapor.alamat_domisili.kode_kelurahan = data.alamat_domisili.kode_kelurahan;
+                    }
+                }
+            }
+        }
+        form.pelapor.alamat_domisili.detail_alamat = data.alamat_domisili.detail_alamat || '';
+    }
+    
+    // Reset search state
+    nikSearchState.found = false;
+    nikSearchState.foundData = null;
+    nikSearchState.message = '';
+    
+    toast.success('Data pelapor berhasil diisi otomatis!');
+};
+
+// Clear NIK search state when NIK changes
+const clearNikSearchState = () => {
+    nikSearchState.found = false;
+    nikSearchState.notFound = false;
+    nikSearchState.foundData = null;
+    nikSearchState.message = '';
+};
+
+// ============================================
+// TEXT EXTRACTION - Paste & Auto-fill Feature
+// ============================================
+const textExtractState = reactive({
+    isOpen: false,
+    rawText: '',
+    extractedData: null,
+    isProcessing: false,
+});
+
+// Toggle text extraction panel
+const toggleTextExtract = () => {
+    textExtractState.isOpen = !textExtractState.isOpen;
+    if (!textExtractState.isOpen) {
+        textExtractState.rawText = '';
+        textExtractState.extractedData = null;
+    }
+};
+
+// ============================================
+// HELPER FUNCTIONS (from usePersonDataParser)
+// ============================================
+const { 
+    toUpperCase, 
+    cleanText,
+    parseProvinsi: _parseProvinsi,
+    parseKabupatenKota,
+    parseKecamatan,
+    parseKelurahan,
+    extractProvinsiFromText,
+    extractKabupatenKotaFromText,
+    extractKecamatanFromText,
+    extractKelurahanFromText,
+    extractAlamatFromText,
+    extractRtRwFromText,
+    extractNikFromText,
+    extractNamaFromText,
+    extractJenisKelaminFromText,
+    extractPekerjaanFromText,
+    extractTeleponFromText,
+    extractTanggalLahirFromText,
+    extractTempatLahirFromText: _extractTempatLahirFromText,
+    parseIndonesianDate,
+    normalizeLaporanFormData,
+} = personParser;
+
+// Wrapper functions that use local masterData
+const parseProvinsi = (searchName) => _parseProvinsi(searchName, masterData.provinsi);
+const extractTempatLahirFromText = (text) => _extractTempatLahirFromText(text, masterData.kabupaten_all);
+
+// Extract data from pasted text
+const extractDataFromText = () => {
+    const rawText = textExtractState.rawText.trim();
+    if (!rawText) {
+        toast.warning('Silakan paste text terlebih dahulu');
+        return;
+    }
+    
+    textExtractState.isProcessing = true;
+    
+    try {
+        // ========================================
+        // USE REUSABLE PARSER FUNCTIONS FROM HELPER
+        // ========================================
+        const extracted = {
+            nik: extractNikFromText(rawText),
+            nama: extractNamaFromText(rawText),
+            tempat_lahir: extractTempatLahirFromText(rawText),
+            tanggal_lahir: extractTanggalLahirFromText(rawText),
+            jenis_kelamin: extractJenisKelaminFromText(rawText),
+            pekerjaan: extractPekerjaanFromText(rawText),
+            telepon: extractTeleponFromText(rawText),
+            alamat: extractAlamatFromText(rawText),
+            rt_rw: extractRtRwFromText(rawText),
+            kelurahan: extractKelurahanFromText(rawText),
+            kecamatan: extractKecamatanFromText(rawText),
+            kabupaten: extractKabupatenKotaFromText(rawText),
+            provinsi: extractProvinsiFromText(rawText),
+        };
+        
+        // ========================================
+        // RESULT
+        // ========================================
+        const hasData = Object.values(extracted).some(v => v !== null);
+        if (!hasData) {
+            toast.warning('Tidak dapat mengekstrak data dari text. Pastikan format text sesuai.');
+            textExtractState.extractedData = null;
+        } else {
+            textExtractState.extractedData = extracted;
+            toast.success('Data berhasil diekstrak! Periksa hasil dan klik "Gunakan Data" untuk mengisi form.');
+        }
+    } catch (error) {
+        console.error('Error extracting data:', error);
+        toast.error('Terjadi kesalahan saat memproses text');
+    } finally {
+        textExtractState.isProcessing = false;
+    }
+};
+
+// Apply extracted data to form
+const applyExtractedData = async () => {
+    const data = textExtractState.extractedData;
+    if (!data) return;
+    
+    // ========================================
+    // BASIC INFO (all UPPERCASE)
+    // ========================================
+    if (data.nik) form.pelapor.nik = data.nik;
+    if (data.nama) form.pelapor.nama = data.nama.toUpperCase();
+    if (data.tanggal_lahir) form.pelapor.tanggal_lahir = data.tanggal_lahir;
+    if (data.jenis_kelamin) form.pelapor.jenis_kelamin = data.jenis_kelamin;
+    if (data.pekerjaan) form.pelapor.pekerjaan = data.pekerjaan.toUpperCase();
+    if (data.telepon) form.pelapor.telepon = data.telepon;
+    
+    // ========================================
+    // TEMPAT LAHIR - Already formatted from extractTempatLahirFromText
+    // ========================================
+    if (data.tempat_lahir) {
+        // Data already contains matched dropdown name or uppercase fallback
+        form.pelapor.tempat_lahir = data.tempat_lahir;
+    }
+    
+    // ========================================
+    // DETAIL ALAMAT
+    // ========================================
+    let detailAlamat = [];
+    if (data.alamat) detailAlamat.push(data.alamat.toUpperCase());
+    if (data.rt_rw) detailAlamat.push(data.rt_rw.toUpperCase());
+    
+    if (detailAlamat.length > 0) {
+        form.pelapor.alamat_ktp.detail_alamat = detailAlamat.join(', ');
+    }
+    
+    // ========================================
+    // AUTO-SELECT WILAYAH DROPDOWNS
+    // Using reusable parser functions
+    // ========================================
+    
+    // Step 1: Find and select Provinsi
+    if (data.provinsi) {
+        const foundProv = parseProvinsi(data.provinsi);
+        if (foundProv) {
+            form.pelapor.alamat_ktp.kode_provinsi = foundProv.kode;
+            await loadKabupaten(foundProv.kode);
+            
+            // Step 2: Find and select Kabupaten/Kota
+            if (data.kabupaten) {
+                await new Promise(resolve => setTimeout(resolve, 300));
+                const foundKab = parseKabupatenKota(data.kabupaten, kabupaten.value);
+                if (foundKab) {
+                    form.pelapor.alamat_ktp.kode_kabupaten = foundKab.kode;
+                    await loadKecamatan(foundKab.kode);
+                    
+                    // Step 3: Find and select Kecamatan
+                    if (data.kecamatan) {
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                        const foundKec = parseKecamatan(data.kecamatan, kecamatan.value);
+                        if (foundKec) {
+                            form.pelapor.alamat_ktp.kode_kecamatan = foundKec.kode;
+                            await loadKelurahan(foundKec.kode);
+                            
+                            // Step 4: Find and select Kelurahan
+                            if (data.kelurahan) {
+                                await new Promise(resolve => setTimeout(resolve, 300));
+                                const foundKel = parseKelurahan(data.kelurahan, kelurahan.value);
+                                if (foundKel) {
+                                    form.pelapor.alamat_ktp.kode_kelurahan = foundKel.kode;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Keep panel open but clear extracted data preview
+    textExtractState.extractedData = null;
+    
+    toast.success('Data berhasil diisi ke form!');
+};
 
 // Identity type options
 const identitasTypes = [
@@ -187,7 +505,7 @@ const getFilteredPlatforms = (jenisIdentitas) => {
 const anggotaOptions = computed(() => {
     return masterData.anggota.map(a => ({
         ...a,
-        displayName: `${a.pangkat || ''} ${a.name} (${a.nrp || ''})`.trim()
+        displayName: `${a.pangkat || ''} ${a.nama || ''} (${a.nrp || ''})`.trim()
     }));
 });
 
@@ -268,8 +586,16 @@ onMounted(async () => {
             showDraftModal.value = true;
         }
         
-        // Start auto-save
-        storage.startAutoSave(form, 30000);
+        // Start auto-save with text extraction state
+        storage.startAutoSave(form, AUTO_SAVE_INTERVAL * 1000, () => ({
+            textExtract: {
+                isOpen: textExtractState.isOpen,
+                rawText: textExtractState.rawText,
+            }
+        }));
+        
+        // Start countdown timer
+        startCountdownTimer();
         
     } catch (err) {
         console.error('Error loading master data:', err);
@@ -277,14 +603,55 @@ onMounted(async () => {
     }
 });
 
-onUnmounted(() => {
-    storage.stopAutoSave();
+// Countdown timer functions
+const startCountdownTimer = () => {
+    autoSaveCountdown.value = AUTO_SAVE_INTERVAL;
+    countdownInterval = setInterval(() => {
+        autoSaveCountdown.value--;
+        if (autoSaveCountdown.value <= 0) {
+            // Reset countdown after save
+            autoSaveCountdown.value = AUTO_SAVE_INTERVAL;
+            lastSaveTime.value = new Date();
+        }
+    }, 1000);
+};
+
+const formatCountdown = computed(() => {
+    const seconds = autoSaveCountdown.value;
+    return `${seconds}s`;
 });
 
+const formatLastSave = computed(() => {
+    if (!lastSaveTime.value) return null;
+    return lastSaveTime.value.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+});
+
+onUnmounted(() => {
+    storage.stopAutoSave();
+    if (countdownInterval) {
+        clearInterval(countdownInterval);
+    }
+});
+
+// Flag to skip watchers during draft loading
+const isLoadingDraft = ref(false);
+
 // Load draft
-const loadDraft = () => {
+const loadDraft = async () => {
     const draft = storage.loadDraft();
     if (draft?.data) {
+        isLoadingDraft.value = true;
+        
+        // Store wilayah codes before assigning (watchers will reset them)
+        const savedAlamatKtp = { ...draft.data.pelapor?.alamat_ktp };
+        const savedAlamatDomisili = { ...draft.data.pelapor?.alamat_domisili };
+        const savedKejadian = {
+            kode_provinsi: draft.data.kode_provinsi_kejadian,
+            kode_kabupaten: draft.data.kode_kabupaten_kejadian,
+            kode_kecamatan: draft.data.kode_kecamatan_kejadian,
+            kode_kelurahan: draft.data.kode_kelurahan_kejadian,
+        };
+        
         Object.assign(form, draft.data);
         
         // Safety: Ensure kerugian_nominal is String (fix old drafts with Number type)
@@ -296,6 +663,65 @@ const loadDraft = () => {
             });
         }
         
+        // Load extra state (text extraction)
+        if (draft.extraState?.textExtract) {
+            textExtractState.isOpen = draft.extraState.textExtract.isOpen || false;
+            textExtractState.rawText = draft.extraState.textExtract.rawText || '';
+            textExtractState.extractedData = null; // Don't restore extracted data, user should re-extract
+        }
+        
+        // Wait a tick for watchers to settle, then load cascading dropdowns
+        await nextTick();
+        
+        // Load cascading wilayah for Alamat KTP
+        if (savedAlamatKtp.kode_provinsi) {
+            await loadKabupaten(savedAlamatKtp.kode_provinsi);
+            form.pelapor.alamat_ktp.kode_kabupaten = savedAlamatKtp.kode_kabupaten || '';
+            
+            if (savedAlamatKtp.kode_kabupaten) {
+                await loadKecamatan(savedAlamatKtp.kode_kabupaten);
+                form.pelapor.alamat_ktp.kode_kecamatan = savedAlamatKtp.kode_kecamatan || '';
+                
+                if (savedAlamatKtp.kode_kecamatan) {
+                    await loadKelurahan(savedAlamatKtp.kode_kecamatan);
+                    form.pelapor.alamat_ktp.kode_kelurahan = savedAlamatKtp.kode_kelurahan || '';
+                }
+            }
+        }
+        
+        // Load cascading wilayah for Alamat Domisili
+        if (savedAlamatDomisili.kode_provinsi) {
+            await loadKabupatenDomisili(savedAlamatDomisili.kode_provinsi);
+            form.pelapor.alamat_domisili.kode_kabupaten = savedAlamatDomisili.kode_kabupaten || '';
+            
+            if (savedAlamatDomisili.kode_kabupaten) {
+                await loadKecamatanDomisili(savedAlamatDomisili.kode_kabupaten);
+                form.pelapor.alamat_domisili.kode_kecamatan = savedAlamatDomisili.kode_kecamatan || '';
+                
+                if (savedAlamatDomisili.kode_kecamatan) {
+                    await loadKelurahanDomisili(savedAlamatDomisili.kode_kecamatan);
+                    form.pelapor.alamat_domisili.kode_kelurahan = savedAlamatDomisili.kode_kelurahan || '';
+                }
+            }
+        }
+        
+        // Load cascading wilayah for Lokasi Kejadian
+        if (savedKejadian.kode_provinsi) {
+            await loadKabupatenKejadian(savedKejadian.kode_provinsi);
+            form.kode_kabupaten_kejadian = savedKejadian.kode_kabupaten || '';
+            
+            if (savedKejadian.kode_kabupaten) {
+                await loadKecamatanKejadian(savedKejadian.kode_kabupaten);
+                form.kode_kecamatan_kejadian = savedKejadian.kode_kecamatan || '';
+                
+                if (savedKejadian.kode_kecamatan) {
+                    await loadKelurahanKejadian(savedKejadian.kode_kecamatan);
+                    form.kode_kelurahan_kejadian = savedKejadian.kode_kelurahan || '';
+                }
+            }
+        }
+        
+        isLoadingDraft.value = false;
         toast.success('Draft berhasil dimuat');
     }
     showDraftModal.value = false;
@@ -401,6 +827,9 @@ const loadKelurahanDomisili = async (kodeKecamatan) => {
 
 // Watch for cascading changes
 watch(() => form.pelapor.alamat_ktp.kode_provinsi, (val) => {
+    // Skip cascade clear if loading draft
+    if (isLoadingDraft.value) return;
+    
     form.pelapor.alamat_ktp.kode_kabupaten = '';
     form.pelapor.alamat_ktp.kode_kecamatan = '';
     form.pelapor.alamat_ktp.kode_kelurahan = '';
@@ -410,6 +839,9 @@ watch(() => form.pelapor.alamat_ktp.kode_provinsi, (val) => {
 });
 
 watch(() => form.pelapor.alamat_ktp.kode_kabupaten, (val) => {
+    // Skip cascade clear if loading draft
+    if (isLoadingDraft.value) return;
+    
     form.pelapor.alamat_ktp.kode_kecamatan = '';
     form.pelapor.alamat_ktp.kode_kelurahan = '';
     kelurahan.value = [];
@@ -417,12 +849,18 @@ watch(() => form.pelapor.alamat_ktp.kode_kabupaten, (val) => {
 });
 
 watch(() => form.pelapor.alamat_ktp.kode_kecamatan, (val) => {
+    // Skip cascade clear if loading draft
+    if (isLoadingDraft.value) return;
+    
     form.pelapor.alamat_ktp.kode_kelurahan = '';
     loadKelurahan(val);
 });
 
 // Watchers for Lokasi Kejadian cascading
 watch(() => form.kode_provinsi_kejadian, (val) => {
+    // Skip cascade clear if loading draft
+    if (isLoadingDraft.value) return;
+    
     form.kode_kabupaten_kejadian = '';
     form.kode_kecamatan_kejadian = '';
     form.kode_kelurahan_kejadian = '';
@@ -432,6 +870,9 @@ watch(() => form.kode_provinsi_kejadian, (val) => {
 });
 
 watch(() => form.kode_kabupaten_kejadian, (val) => {
+    // Skip cascade clear if loading draft
+    if (isLoadingDraft.value) return;
+    
     form.kode_kecamatan_kejadian = '';
     form.kode_kelurahan_kejadian = '';
     kelurahanKejadian.value = [];
@@ -439,6 +880,9 @@ watch(() => form.kode_kabupaten_kejadian, (val) => {
 });
 
 watch(() => form.kode_kecamatan_kejadian, (val) => {
+    // Skip cascade clear if loading draft
+    if (isLoadingDraft.value) return;
+    
     form.kode_kelurahan_kejadian = '';
     loadKelurahanKejadian(val);
 });
@@ -448,8 +892,8 @@ watch(() => form.kode_kecamatan_kejadian, (val) => {
 const isSyncingDomisili = ref(false);
 
 watch(() => form.pelapor.alamat_domisili.kode_provinsi, (val) => {
-    // Skip cascade clear if syncing from KTP
-    if (isSyncingDomisili.value) return;
+    // Skip cascade clear if syncing from KTP or loading draft
+    if (isSyncingDomisili.value || isLoadingDraft.value) return;
     
     form.pelapor.alamat_domisili.kode_kabupaten = '';
     form.pelapor.alamat_domisili.kode_kecamatan = '';
@@ -460,8 +904,8 @@ watch(() => form.pelapor.alamat_domisili.kode_provinsi, (val) => {
 });
 
 watch(() => form.pelapor.alamat_domisili.kode_kabupaten, (val) => {
-    // Skip cascade clear if syncing from KTP
-    if (isSyncingDomisili.value) return;
+    // Skip cascade clear if syncing from KTP or loading draft
+    if (isSyncingDomisili.value || isLoadingDraft.value) return;
     
     form.pelapor.alamat_domisili.kode_kecamatan = '';
     form.pelapor.alamat_domisili.kode_kelurahan = '';
@@ -470,8 +914,8 @@ watch(() => form.pelapor.alamat_domisili.kode_kabupaten, (val) => {
 });
 
 watch(() => form.pelapor.alamat_domisili.kode_kecamatan, (val) => {
-    // Skip cascade clear if syncing from KTP
-    if (isSyncingDomisili.value) return;
+    // Skip cascade clear if syncing from KTP or loading draft
+    if (isSyncingDomisili.value || isLoadingDraft.value) return;
     
     form.pelapor.alamat_domisili.kode_kelurahan = '';
     loadKelurahanDomisili(val);
@@ -570,7 +1014,7 @@ const addKorban = () => {
             nama: '',
             tempat_lahir: '',
             tanggal_lahir: '',
-            jenis_kelamin: 'Laki-laki',
+            jenis_kelamin: 'LAKI-LAKI',
             pekerjaan: '',
             pendidikan: '', // Pendidikan terakhir
             telepon: '',
@@ -680,14 +1124,22 @@ const submitForm = async () => {
         });
     }
 
+    // ========================================
+    // NORMALIZE DATA BEFORE SUBMIT
+    // - UPPERCASE for identity fields (nama, nik, alamat, etc.)
+    // - PRESERVE case for narrative fields (modus, catatan)
+    // ========================================
+    const normalizedForm = normalizeLaporanFormData(form);
+
     // Debug: Log form data before submit
-    console.log('=== FORM DATA BEFORE SUBMIT ===');
-    console.log('Petugas ID:', form.petugas_id);
-    console.log('Pelapor Alamat KTP:', form.pelapor.alamat_ktp);
-    console.log('Full Form:', JSON.stringify(form, null, 2));
+    console.log('=== FORM DATA BEFORE SUBMIT (NORMALIZED) ===');
+    console.log('Petugas ID:', normalizedForm.petugas_id);
+    console.log('Pelapor Alamat KTP:', normalizedForm.pelapor.alamat_ktp);
+    console.log('Modus (preserved):', normalizedForm.modus);
+    console.log('Full Form:', JSON.stringify(normalizedForm, null, 2));
 
     try {
-        const response = await axios.post('/laporan', form);
+        const response = await axios.post('/laporan', normalizedForm);
         
         if (response.data.success) {
             // Save default petugas to localStorage
@@ -896,6 +1348,261 @@ const handleKeydown = (event) => {
                         </select>
                     </div>
 
+                    <!-- NIK/PASSPORT SEARCH SECTION - Auto-fill dari database -->
+                    <div class="mb-6 p-4 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-lg">
+                        <div class="flex items-center gap-2 mb-3">
+                            <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                            <span class="font-semibold text-green-800">Cari Data Pelapor dari Database</span>
+                        </div>
+                        <p class="text-sm text-green-700 mb-3">
+                            Masukkan {{ form.pelapor.kewarganegaraan === 'WNI' ? 'NIK' : 'No. Paspor/ID Asing' }} untuk mencari data yang sudah ada di sistem. Jika ditemukan, data akan terisi otomatis.
+                        </p>
+                        <div class="flex items-start gap-2">
+                            <div class="flex-1">
+                                <!-- WNI: NIK Input - Direct input without FormattedInput to avoid helper text -->
+                                <input
+                                    v-if="form.pelapor.kewarganegaraan === 'WNI'"
+                                    type="text"
+                                    v-model="form.pelapor.nik"
+                                    @input="clearNikSearchState"
+                                    class="w-full h-[42px] rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
+                                    placeholder="Masukkan 16 digit NIK"
+                                    maxlength="16"
+                                    inputmode="numeric"
+                                    pattern="[0-9]*"
+                                />
+                                <!-- WNA: Passport/ID Input -->
+                                <input
+                                    v-else
+                                    type="text"
+                                    v-model="form.pelapor.nik"
+                                    @input="clearNikSearchState"
+                                    class="w-full h-[42px] rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
+                                    placeholder="Masukkan No. Paspor/ID Asing"
+                                    maxlength="50"
+                                />
+                            </div>
+                            <button
+                                type="button"
+                                @click="searchOrangByNik"
+                                :disabled="nikSearchState.isSearching || !form.pelapor.nik || form.pelapor.nik.length < 5"
+                                class="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors flex items-center gap-2 h-[42px]"
+                            >
+                                <svg v-if="nikSearchState.isSearching" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                                <span>{{ nikSearchState.isSearching ? 'Mencari...' : 'Cari' }}</span>
+                            </button>
+                        </div>
+                        
+                        <!-- Search Result - Found -->
+                        <div v-if="nikSearchState.found" class="mt-4 p-3 bg-white border border-green-300 rounded-lg">
+                            <div class="flex items-start justify-between">
+                                <div>
+                                    <div class="flex items-center gap-2 text-green-700 font-semibold mb-1">
+                                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                                        </svg>
+                                        Data Ditemukan!
+                                    </div>
+                                    <div class="text-sm text-gray-700">
+                                        <strong>{{ nikSearchState.foundData?.nama }}</strong>
+                                        <span class="text-gray-500"> • {{ nikSearchState.foundData?.jenis_kelamin }}</span>
+                                    </div>
+                                    <div class="text-xs text-gray-500 mt-1">
+                                        {{ nikSearchState.foundData?.tempat_lahir }}, {{ nikSearchState.foundData?.tanggal_lahir }}
+                                    </div>
+                                    <div class="flex gap-2 mt-2">
+                                        <span v-if="nikSearchState.foundData?.is_pelapor" class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-green-100 text-green-700">
+                                            Pernah Pelapor
+                                        </span>
+                                        <span v-if="nikSearchState.foundData?.is_korban" class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-yellow-100 text-yellow-700">
+                                            Pernah Korban
+                                        </span>
+                                        <span v-if="nikSearchState.foundData?.is_tersangka" class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">
+                                            Pernah Tersangka
+                                        </span>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    @click="autoFillPelapor"
+                                    class="px-4 py-2 bg-tactical-accent hover:bg-tactical-accent-dark text-white rounded-lg font-medium text-sm transition-colors"
+                                >
+                                    Gunakan Data
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Search Result - Not Found -->
+                        <div v-if="nikSearchState.notFound" class="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                            <div class="flex items-center gap-2 text-yellow-700">
+                                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                </svg>
+                                <span class="text-sm">{{ nikSearchState.message }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TEXT EXTRACTION SECTION - Paste & Extract -->
+                    <div class="mb-6 p-4 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-lg">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                <span class="font-semibold text-purple-800">Paste & Ekstrak Data Otomatis</span>
+                            </div>
+                            <button
+                                type="button"
+                                @click="toggleTextExtract"
+                                class="text-purple-600 hover:text-purple-800 text-sm font-medium flex items-center gap-1"
+                            >
+                                <span>{{ textExtractState.isOpen ? 'Tutup' : 'Buka' }}</span>
+                                <svg class="w-4 h-4 transition-transform" :class="{ 'rotate-180': textExtractState.isOpen }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </button>
+                        </div>
+                        <p class="text-sm text-purple-700 mt-1">
+                            Paste text identitas (dari KTP, dokumen, dll) dan sistem akan mengekstrak data secara otomatis.
+                        </p>
+                        
+                        <!-- Expandable Panel -->
+                        <div v-if="textExtractState.isOpen" class="mt-4">
+                            <textarea
+                                v-model="textExtractState.rawText"
+                                rows="6"
+                                class="w-full rounded-lg border-gray-300 focus:border-purple-500 focus:ring-purple-500 text-sm"
+                                placeholder="Paste text identitas di sini, contoh:
+
+NIK: 3374012345678901
+Nama: BUDI SANTOSO
+Tempat/Tanggal Lahir: SEMARANG, 15-05-1990
+Jenis Kelamin: LAKI-LAKI
+Alamat: Jl. Pemuda No. 123
+RT/RW: 001/002
+Kel. Sekayu Kec. Semarang Tengah
+Kota Semarang, Jawa Tengah
+Pekerjaan: Wiraswasta
+No. HP: 081234567890"
+                            ></textarea>
+                            
+                            <div class="flex gap-2 mt-3">
+                                <button
+                                    type="button"
+                                    @click="extractDataFromText"
+                                    :disabled="textExtractState.isProcessing || !textExtractState.rawText.trim()"
+                                    class="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded-lg font-medium text-sm transition-colors flex items-center gap-2"
+                                >
+                                    <svg v-if="textExtractState.isProcessing" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                    <span>Ekstrak Data</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    @click="textExtractState.rawText = ''; textExtractState.extractedData = null;"
+                                    class="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-medium text-sm transition-colors"
+                                >
+                                    Reset
+                                </button>
+                            </div>
+                            
+                            <!-- Extracted Data Preview -->
+                            <div v-if="textExtractState.extractedData" class="mt-4 p-4 bg-white border border-purple-200 rounded-lg">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h5 class="font-semibold text-purple-800 flex items-center gap-2">
+                                        <svg class="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                                        </svg>
+                                        Data Berhasil Diekstrak
+                                    </h5>
+                                    <button
+                                        type="button"
+                                        @click="applyExtractedData"
+                                        class="px-4 py-2 bg-tactical-accent hover:bg-tactical-accent-dark text-white rounded-lg font-medium text-sm transition-colors flex items-center gap-2"
+                                    >
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                        </svg>
+                                        Gunakan Data Ini
+                                    </button>
+                                </div>
+                                
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                    <div v-if="textExtractState.extractedData.nik" class="flex">
+                                        <span class="font-medium text-gray-600 w-28">NIK:</span>
+                                        <span class="text-gray-900">{{ textExtractState.extractedData.nik }}</span>
+                                    </div>
+                                    <div v-if="textExtractState.extractedData.nama" class="flex">
+                                        <span class="font-medium text-gray-600 w-28">Nama:</span>
+                                        <span class="text-gray-900">{{ textExtractState.extractedData.nama }}</span>
+                                    </div>
+                                    <div v-if="textExtractState.extractedData.tempat_lahir" class="flex">
+                                        <span class="font-medium text-gray-600 w-28">Tempat Lahir:</span>
+                                        <span class="text-gray-900">{{ textExtractState.extractedData.tempat_lahir }}</span>
+                                    </div>
+                                    <div v-if="textExtractState.extractedData.tanggal_lahir" class="flex">
+                                        <span class="font-medium text-gray-600 w-28">Tgl Lahir:</span>
+                                        <span class="text-gray-900">{{ textExtractState.extractedData.tanggal_lahir }}</span>
+                                    </div>
+                                    <div v-if="textExtractState.extractedData.jenis_kelamin" class="flex">
+                                        <span class="font-medium text-gray-600 w-28">Jenis Kelamin:</span>
+                                        <span class="text-gray-900">{{ textExtractState.extractedData.jenis_kelamin }}</span>
+                                    </div>
+                                    <div v-if="textExtractState.extractedData.pekerjaan" class="flex">
+                                        <span class="font-medium text-gray-600 w-28">Pekerjaan:</span>
+                                        <span class="text-gray-900">{{ textExtractState.extractedData.pekerjaan }}</span>
+                                    </div>
+                                    <div v-if="textExtractState.extractedData.telepon" class="flex">
+                                        <span class="font-medium text-gray-600 w-28">Telepon:</span>
+                                        <span class="text-gray-900">{{ textExtractState.extractedData.telepon }}</span>
+                                    </div>
+                                    <div v-if="textExtractState.extractedData.alamat" class="flex md:col-span-2">
+                                        <span class="font-medium text-gray-600 w-28">Alamat:</span>
+                                        <span class="text-gray-900">{{ textExtractState.extractedData.alamat }}</span>
+                                    </div>
+                                    <div v-if="textExtractState.extractedData.rt_rw" class="flex">
+                                        <span class="font-medium text-gray-600 w-28">RT/RW:</span>
+                                        <span class="text-gray-900">{{ textExtractState.extractedData.rt_rw }}</span>
+                                    </div>
+                                    <div v-if="textExtractState.extractedData.kelurahan" class="flex">
+                                        <span class="font-medium text-gray-600 w-28">Kelurahan:</span>
+                                        <span class="text-gray-900">{{ textExtractState.extractedData.kelurahan }}</span>
+                                    </div>
+                                    <div v-if="textExtractState.extractedData.kecamatan" class="flex">
+                                        <span class="font-medium text-gray-600 w-28">Kecamatan:</span>
+                                        <span class="text-gray-900">{{ textExtractState.extractedData.kecamatan }}</span>
+                                    </div>
+                                    <div v-if="textExtractState.extractedData.kabupaten" class="flex">
+                                        <span class="font-medium text-gray-600 w-28">Kabupaten:</span>
+                                        <span class="text-gray-900">{{ textExtractState.extractedData.kabupaten }}</span>
+                                    </div>
+                                    <div v-if="textExtractState.extractedData.provinsi" class="flex">
+                                        <span class="font-medium text-gray-600 w-28">Provinsi:</span>
+                                        <span class="text-gray-900">{{ textExtractState.extractedData.provinsi }}</span>
+                                    </div>
+                                </div>
+                                
+                                <p class="mt-3 text-xs text-gray-500 italic">
+                                    * Periksa data di atas sebelum menggunakan. Beberapa field mungkin perlu dilengkapi secara manual.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- IDENTITY SECTION -->
                     <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
                         <h4 class="font-semibold text-navy mb-4 flex items-center gap-2">
@@ -911,7 +1618,9 @@ const handleKeydown = (event) => {
                                     placeholder="Masukkan 16 digit NIK"
                                     required
                                     :error="validationErrors['pelapor.nik']"
+                                    @update:modelValue="clearNikSearchState"
                                 />
+                                <p class="mt-1 text-xs text-gray-400">Sudah diisi dari pencarian di atas, atau isi manual</p>
                             </div>
                             <div v-else>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">
@@ -977,8 +1686,8 @@ const handleKeydown = (event) => {
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Jenis Kelamin <span class="text-red-500">*</span></label>
                                 <select v-model="form.pelapor.jenis_kelamin" class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent">
-                                    <option value="Laki-laki">Laki-laki</option>
-                                    <option value="Perempuan">Perempuan</option>
+                                    <option value="LAKI-LAKI">LAKI-LAKI</option>
+                                    <option value="PEREMPUAN">PEREMPUAN</option>
                                 </select>
                             </div>
 
@@ -1458,8 +2167,8 @@ const handleKeydown = (event) => {
                                             v-model="korban.orang.jenis_kelamin" 
                                             class="w-full rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
                                         >
-                                            <option value="Laki-laki">Laki-laki</option>
-                                            <option value="Perempuan">Perempuan</option>
+                                            <option value="LAKI-LAKI">LAKI-LAKI</option>
+                                            <option value="PEREMPUAN">PEREMPUAN</option>
                                         </select>
                                     </div>
                                     <div>
@@ -1712,10 +2421,59 @@ const handleKeydown = (event) => {
                 </div>
             </div>
 
-            <!-- Auto-save indicator -->
-            <div class="mt-4 text-center text-xs text-gray-400">
-                💾 Draft otomatis tersimpan setiap 30 detik
-            </div>
         </div>
+        
+        <!-- Floating Auto-save Countdown Timer -->
+        <Teleport to="body">
+            <div 
+                v-if="!isSuccess"
+                class="fixed bottom-4 right-4 z-40"
+            >
+                <div class="bg-white/95 backdrop-blur-sm border border-gray-200 rounded-lg shadow-lg px-3 py-2 flex items-center gap-2 text-xs">
+                    <!-- Countdown circle -->
+                    <div class="relative w-8 h-8">
+                        <svg class="w-8 h-8 transform -rotate-90" viewBox="0 0 32 32">
+                            <!-- Background circle -->
+                            <circle 
+                                cx="16" cy="16" r="14" 
+                                fill="none" 
+                                stroke="#e5e7eb" 
+                                stroke-width="3"
+                            />
+                            <!-- Progress circle -->
+                            <circle 
+                                cx="16" cy="16" r="14" 
+                                fill="none" 
+                                :stroke="autoSaveCountdown <= 5 ? '#f59e0b' : '#3b82f6'" 
+                                stroke-width="3"
+                                stroke-linecap="round"
+                                :stroke-dasharray="87.96"
+                                :stroke-dashoffset="87.96 - (87.96 * autoSaveCountdown / AUTO_SAVE_INTERVAL)"
+                                class="transition-all duration-1000"
+                            />
+                        </svg>
+                        <!-- Countdown number -->
+                        <span class="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-gray-700">
+                            {{ autoSaveCountdown }}
+                        </span>
+                    </div>
+                    
+                    <!-- Text -->
+                    <div class="flex flex-col">
+                        <span class="text-gray-500 font-medium">Auto-save</span>
+                        <span v-if="lastSaveTime" class="text-gray-400 text-[10px]">
+                            Terakhir: {{ formatLastSave }}
+                        </span>
+                    </div>
+                    
+                    <!-- Save icon indicator when saving -->
+                    <div v-if="autoSaveCountdown >= AUTO_SAVE_INTERVAL - 1 && lastSaveTime" class="text-green-500">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </Teleport>
     </SidebarLayout>
 </template>

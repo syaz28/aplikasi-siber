@@ -44,7 +44,7 @@ class StoreOrangRequest extends FormRequest
             'nama' => 'required|string|max:100',
             'tempat_lahir' => 'required|string|max:100',
             'tanggal_lahir' => 'required|date|before:today',
-            'jenis_kelamin' => 'required|in:Laki-laki,Perempuan',
+            'jenis_kelamin' => 'required|in:LAKI-LAKI,PEREMPUAN',
             'pekerjaan' => 'required|string|max:100',
             'telepon' => [
                 'required',
@@ -88,7 +88,7 @@ class StoreOrangRequest extends FormRequest
             'tanggal_lahir.required' => 'Tanggal lahir wajib diisi',
             'tanggal_lahir.before' => 'Tanggal lahir tidak valid',
             'jenis_kelamin.required' => 'Jenis kelamin wajib dipilih',
-            'jenis_kelamin.in' => 'Jenis kelamin harus Laki-laki atau Perempuan',
+            'jenis_kelamin.in' => 'Jenis kelamin harus LAKI-LAKI atau PEREMPUAN',
             'pekerjaan.required' => 'Pekerjaan wajib diisi',
             'telepon.required' => 'Nomor telepon wajib diisi',
             'telepon.regex' => 'Format nomor telepon tidak valid (contoh: 08123456789)',

@@ -169,7 +169,7 @@ class LaporanController extends Controller
                 ? 'required|string|max:100' 
                 : 'nullable|string|max:100',
             'pelapor.tanggal_lahir' => 'required|date',
-            'pelapor.jenis_kelamin' => 'required|in:Laki-laki,Perempuan',
+            'pelapor.jenis_kelamin' => 'required|in:LAKI-LAKI,PEREMPUAN',
             'pelapor.pekerjaan' => 'required|string|max:100',
             'pelapor.pendidikan' => 'required|string|max:50', // Pendidikan terakhir
             'pelapor.telepon' => 'required|string|max:30', // Allow longer for international format
@@ -221,7 +221,7 @@ class LaporanController extends Controller
             'korban.*.orang.nama' => 'required|string|max:100',
             'korban.*.orang.tempat_lahir' => 'required|string|max:100',
             'korban.*.orang.tanggal_lahir' => 'required|date',
-            'korban.*.orang.jenis_kelamin' => 'required|in:Laki-laki,Perempuan',
+            'korban.*.orang.jenis_kelamin' => 'required|in:LAKI-LAKI,PEREMPUAN',
             'korban.*.orang.pekerjaan' => 'required|string|max:100',
             'korban.*.orang.telepon' => 'required|string|max:20',
             'korban.*.kerugian_nominal' => 'required|numeric|min:0',

@@ -14,6 +14,7 @@ const props = defineProps({
     platformDistribution: Object,
     categoryDistribution: Object,
     recentReports: Array,
+    tersangkaSummary: Object,
 });
 
 const currentDate = computed(() => {
@@ -29,6 +30,34 @@ const currentDate = computed(() => {
 const formatRupiah = (amount) => {
     if (!amount) return 'Rp 0';
     return 'Rp ' + parseInt(amount).toLocaleString('id-ID');
+};
+
+// Get jenis identity label
+const getJenisLabel = (jenis) => {
+    const labels = {
+        'rekening': 'Rekening',
+        'telepon': 'Telepon',
+        'email': 'Email',
+        'social_media': 'Sosial Media',
+        'website': 'Website',
+        'lainnya': 'Lainnya',
+    };
+    return labels[jenis] || jenis;
+};
+
+// Mask identity value for privacy
+const maskValue = (value, jenis) => {
+    if (!value) return '-';
+    if (jenis === 'rekening' && value.length > 6) {
+        return value.substring(0, 3) + '***' + value.substring(value.length - 3);
+    }
+    if (jenis === 'telepon' && value.length > 6) {
+        return value.substring(0, 4) + '****' + value.substring(value.length - 2);
+    }
+    if (value.length > 8) {
+        return value.substring(0, 4) + '****' + value.substring(value.length - 4);
+    }
+    return value;
 };
 
 // Status badge classes
@@ -351,7 +380,153 @@ const categoryChartSeries = computed(() => [{
             </div>
 
             <!-- =============================================
-                 ROW 3: RECENT REPORTS TABLE + CATEGORY CHART
+                 ROW 3: TERSANGKA SUMMARY CARDS
+                 ============================================= -->
+            <div v-if="tersangkaSummary" class="space-y-4">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-lg font-semibold text-gray-900">Ringkasan Tersangka</h2>
+                    <Link
+                        href="/tersangka"
+                        class="text-sm font-medium text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                    >
+                        Lihat Semua
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                        </svg>
+                    </Link>
+                </div>
+                
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <!-- Total Tersangka -->
+                    <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-gray-500 mb-1">Total Tersangka</p>
+                                <p class="text-3xl font-bold text-gray-900">{{ tersangkaSummary?.total || 0 }}</p>
+                            </div>
+                            <div class="p-3 bg-purple-100 rounded-xl">
+                                <svg class="w-7 h-7 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="mt-3 flex items-center text-sm">
+                            <span class="text-purple-600 font-medium">Dari semua laporan</span>
+                        </div>
+                    </div>
+
+                    <!-- Belum Teridentifikasi -->
+                    <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-gray-500 mb-1">Belum Teridentifikasi</p>
+                                <p class="text-3xl font-bold text-orange-600">{{ tersangkaSummary?.unidentified || 0 }}</p>
+                            </div>
+                            <div class="p-3 bg-orange-100 rounded-xl">
+                                <svg class="w-7 h-7 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="mt-3 flex items-center text-sm">
+                            <span class="text-orange-600 font-medium">Perlu identifikasi</span>
+                        </div>
+                    </div>
+
+                    <!-- Tersangka Terhubung -->
+                    <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-gray-500 mb-1">Tersangka Terhubung</p>
+                                <p class="text-3xl font-bold text-red-600">{{ tersangkaSummary?.linked || 0 }}</p>
+                            </div>
+                            <div class="p-3 bg-red-100 rounded-xl">
+                                <svg class="w-7 h-7 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="mt-3 flex items-center text-sm">
+                            <span class="text-red-600 font-medium">{{ tersangkaSummary?.linked_groups || 0 }} grup koneksi</span>
+                        </div>
+                    </div>
+
+                    <!-- Identifikasi Rate -->
+                    <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-gray-500 mb-1">Tingkat Identifikasi</p>
+                                <p class="text-3xl font-bold text-green-600">
+                                    {{ tersangkaSummary?.total ? Math.round(((tersangkaSummary.total - tersangkaSummary.unidentified) / tersangkaSummary.total) * 100) : 0 }}%
+                                </p>
+                            </div>
+                            <div class="p-3 bg-green-100 rounded-xl">
+                                <svg class="w-7 h-7 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="mt-3 flex items-center text-sm">
+                            <span class="text-green-600 font-medium">Tersangka teridentifikasi</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Top Repeated Identities -->
+                <div v-if="tersangkaSummary?.top_repeated?.length > 0" class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <h3 class="text-lg font-semibold text-gray-900">Identitas Digital Berulang</h3>
+                            <p class="text-sm text-gray-500">Identitas tersangka yang muncul di lebih dari 1 laporan</p>
+                        </div>
+                        <Link
+                            href="/tersangka?tab=linked"
+                            class="text-sm font-medium text-blue-600 hover:text-blue-800"
+                        >
+                            Lihat Detail
+                        </Link>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Jenis</th>
+                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Nilai</th>
+                                    <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Platform</th>
+                                    <th class="px-4 py-2 text-center text-xs font-semibold text-gray-600 uppercase">Frekuensi</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                <tr v-for="(item, index) in tersangkaSummary.top_repeated" :key="index" class="hover:bg-gray-50">
+                                    <td class="px-4 py-3">
+                                        <span class="px-2 py-1 text-xs font-medium rounded-full"
+                                            :class="{
+                                                'bg-blue-100 text-blue-700': item.jenis === 'rekening',
+                                                'bg-green-100 text-green-700': item.jenis === 'telepon',
+                                                'bg-purple-100 text-purple-700': item.jenis === 'email',
+                                                'bg-pink-100 text-pink-700': item.jenis === 'social_media',
+                                                'bg-gray-100 text-gray-700': !['rekening', 'telepon', 'email', 'social_media'].includes(item.jenis)
+                                            }"
+                                        >
+                                            {{ getJenisLabel(item.jenis) }}
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-3 font-mono text-sm text-gray-800">{{ maskValue(item.nilai, item.jenis) }}</td>
+                                    <td class="px-4 py-3 text-sm text-gray-600">{{ item.platform || '-' }}</td>
+                                    <td class="px-4 py-3 text-center">
+                                        <span class="px-2.5 py-1 text-xs font-bold bg-red-100 text-red-700 rounded-full">
+                                            {{ item.count }}x
+                                        </span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- =============================================
+                 ROW 4: RECENT REPORTS TABLE + CATEGORY CHART
                  ============================================= -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 

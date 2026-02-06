@@ -5,6 +5,9 @@ namespace App\Http\Controllers\Pimpinan;
 use App\Http\Controllers\Controller;
 use App\Models\Korban;
 use App\Models\Laporan;
+use App\Models\Tersangka;
+use App\Models\IdentitasTersangka;
+use App\Models\Orang;
 use App\Models\KategoriKejahatan;
 use App\Models\MasterPendidikan;
 use Illuminate\Http\Request;
@@ -166,7 +169,7 @@ class PimpinanDashboardController extends Controller
         $genderData = $genderQuery->get();
 
         $chartGender = [
-            'labels' => $genderData->pluck('jenis_kelamin')->map(fn($g) => $g === 'Laki-laki' ? 'Laki-laki' : 'Perempuan')->toArray(),
+            'labels' => $genderData->pluck('jenis_kelamin')->map(fn($g) => $g === 'LAKI-LAKI' ? 'LAKI-LAKI' : 'PEREMPUAN')->toArray(),
             'data' => $genderData->pluck('total')->toArray(),
         ];
 
@@ -235,11 +238,21 @@ class PimpinanDashboardController extends Controller
         ];
 
         // =============================================
-        // F. FILTER OPTIONS (for dropdown/checkboxes)
+        // F. TERSANGKA STATISTICS
+        // =============================================
+        $tersangkaStats = $this->getTersangkaStatistics($startDate, $endDate, $kategoriFokus);
+
+        // =============================================
+        // G. PELAPOR vs KORBAN COMPARISON
+        // =============================================
+        $pelaporKorbanComparison = $this->getPelaporKorbanComparison($startDate, $endDate);
+
+        // =============================================
+        // H. FILTER OPTIONS (for dropdown/checkboxes)
         // =============================================
         $filterOptions = [
             'pendidikan' => MasterPendidikan::orderBy('nama')->pluck('nama')->toArray(),
-            'gender' => ['Laki-laki', 'Perempuan'],
+            'gender' => ['LAKI-LAKI', 'PEREMPUAN'],
             'age_group' => array_keys(self::AGE_GROUPS),
             'kategori' => KategoriKejahatan::active()->orderBy('nama')->get(['id', 'nama'])->toArray(),
         ];
@@ -253,6 +266,8 @@ class PimpinanDashboardController extends Controller
             'chartPendidikan' => $chartPendidikan,
             'chartUsia' => $chartUsia,
             'chartKategori' => $chartKategori,
+            'tersangkaStats' => $tersangkaStats,
+            'pelaporKorbanComparison' => $pelaporKorbanComparison,
             'filterOptions' => $filterOptions,
             'appliedFilters' => [
                 'date_range' => $dateRange,
@@ -260,6 +275,176 @@ class PimpinanDashboardController extends Controller
                 'kategori_fokus' => $kategoriFokus,
             ],
         ]);
+    }
+
+    /**
+     * Get tersangka statistics for executive dashboard
+     */
+    private function getTersangkaStatistics($startDate, $endDate, $kategoriFokus): array
+    {
+        // Base query for tersangka
+        $baseQuery = Tersangka::query()
+            ->join('laporan', 'tersangka.laporan_id', '=', 'laporan.id');
+
+        if ($startDate && $endDate) {
+            $baseQuery->whereBetween('laporan.tanggal_laporan', [$startDate, $endDate]);
+        }
+        if (!empty($kategoriFokus)) {
+            $baseQuery->where('laporan.kategori_kejahatan_id', $kategoriFokus);
+        }
+
+        // Total tersangka
+        $total = (clone $baseQuery)->count();
+        $identified = (clone $baseQuery)->whereNotNull('tersangka.orang_id')->count();
+        $unidentified = (clone $baseQuery)->whereNull('tersangka.orang_id')->count();
+
+        // Identity type breakdown
+        $identityQuery = IdentitasTersangka::query()
+            ->join('tersangka', 'identitas_tersangka.tersangka_id', '=', 'tersangka.id')
+            ->join('laporan', 'tersangka.laporan_id', '=', 'laporan.id');
+
+        if ($startDate && $endDate) {
+            $identityQuery->whereBetween('laporan.tanggal_laporan', [$startDate, $endDate]);
+        }
+        if (!empty($kategoriFokus)) {
+            $identityQuery->where('laporan.kategori_kejahatan_id', $kategoriFokus);
+        }
+
+        $identityByType = $identityQuery
+            ->select('identitas_tersangka.jenis', DB::raw('COUNT(*) as total'))
+            ->groupBy('identitas_tersangka.jenis')
+            ->orderByDesc('total')
+            ->get();
+
+        // Linked tersangka (same identity across reports)
+        $linkedIdentities = IdentitasTersangka::select('jenis', 'nilai', DB::raw('COUNT(*) as count'))
+            ->groupBy('jenis', 'nilai')
+            ->having('count', '>', 1)
+            ->get();
+
+        $linkedTersangkaIds = collect();
+        foreach ($linkedIdentities as $dup) {
+            $ids = IdentitasTersangka::where('jenis', $dup->jenis)
+                ->where('nilai', $dup->nilai)
+                ->pluck('tersangka_id');
+            $linkedTersangkaIds = $linkedTersangkaIds->merge($ids);
+        }
+
+        $totalLinked = $linkedTersangkaIds->unique()->count();
+        $totalLinkedGroups = $linkedIdentities->count();
+
+        // Tersangka by crime category
+        $byCategory = Tersangka::query()
+            ->join('laporan', 'tersangka.laporan_id', '=', 'laporan.id')
+            ->join('kategori_kejahatan', 'laporan.kategori_kejahatan_id', '=', 'kategori_kejahatan.id')
+            ->select('kategori_kejahatan.nama', DB::raw('COUNT(tersangka.id) as total'))
+            ->when($startDate && $endDate, fn($q) => $q->whereBetween('laporan.tanggal_laporan', [$startDate, $endDate]))
+            ->when(!empty($kategoriFokus), fn($q) => $q->where('laporan.kategori_kejahatan_id', $kategoriFokus))
+            ->groupBy('kategori_kejahatan.id', 'kategori_kejahatan.nama')
+            ->orderByDesc('total')
+            ->get();
+
+        return [
+            'total' => $total,
+            'identified' => $identified,
+            'unidentified' => $unidentified,
+            'identification_rate' => $total > 0 ? round(($identified / $total) * 100, 1) : 0,
+            'total_linked' => $totalLinked,
+            'total_linked_groups' => $totalLinkedGroups,
+            'identity_by_type' => [
+                'labels' => $identityByType->pluck('jenis')->map(fn($j) => IdentitasTersangka::getJenisOptions()[$j] ?? $j)->toArray(),
+                'data' => $identityByType->pluck('total')->toArray(),
+            ],
+            'by_category' => [
+                'labels' => $byCategory->pluck('nama')->toArray(),
+                'data' => $byCategory->pluck('total')->toArray(),
+            ],
+        ];
+    }
+
+    /**
+     * Get pelapor vs korban comparison statistics
+     */
+    private function getPelaporKorbanComparison($startDate, $endDate): array
+    {
+        // Total unique pelapor
+        $pelaporQuery = Laporan::query()
+            ->when($startDate && $endDate, fn($q) => $q->whereBetween('tanggal_laporan', [$startDate, $endDate]));
+        
+        $totalPelapor = $pelaporQuery->distinct('pelapor_id')->count('pelapor_id');
+
+        // Total korban
+        $korbanQuery = Korban::query()
+            ->join('laporan', 'korban.laporan_id', '=', 'laporan.id')
+            ->when($startDate && $endDate, fn($q) => $q->whereBetween('laporan.tanggal_laporan', [$startDate, $endDate]));
+
+        $totalKorban = $korbanQuery->count();
+
+        // Pelapor gender breakdown
+        $pelaporGender = Laporan::query()
+            ->join('orang', 'laporan.pelapor_id', '=', 'orang.id')
+            ->select('orang.jenis_kelamin', DB::raw('COUNT(DISTINCT laporan.pelapor_id) as total'))
+            ->when($startDate && $endDate, fn($q) => $q->whereBetween('laporan.tanggal_laporan', [$startDate, $endDate]))
+            ->groupBy('orang.jenis_kelamin')
+            ->get();
+
+        // Korban gender breakdown
+        $korbanGender = Korban::query()
+            ->join('laporan', 'korban.laporan_id', '=', 'laporan.id')
+            ->join('orang', 'korban.orang_id', '=', 'orang.id')
+            ->select('orang.jenis_kelamin', DB::raw('COUNT(*) as total'))
+            ->when($startDate && $endDate, fn($q) => $q->whereBetween('laporan.tanggal_laporan', [$startDate, $endDate]))
+            ->groupBy('orang.jenis_kelamin')
+            ->get();
+
+        // Tersangka gender breakdown (only identified)
+        $tersangkaGender = Tersangka::query()
+            ->join('laporan', 'tersangka.laporan_id', '=', 'laporan.id')
+            ->join('orang', 'tersangka.orang_id', '=', 'orang.id')
+            ->select('orang.jenis_kelamin', DB::raw('COUNT(*) as total'))
+            ->when($startDate && $endDate, fn($q) => $q->whereBetween('laporan.tanggal_laporan', [$startDate, $endDate]))
+            ->whereNotNull('tersangka.orang_id')
+            ->groupBy('orang.jenis_kelamin')
+            ->get();
+
+        // Format gender comparison for stacked chart
+        $genderLabels = ['LAKI-LAKI', 'PEREMPUAN'];
+        $pelaporByGender = [];
+        $korbanByGender = [];
+        $tersangkaByGender = [];
+
+        foreach ($genderLabels as $g) {
+            $pelaporByGender[] = $pelaporGender->firstWhere('jenis_kelamin', $g)?->total ?? 0;
+            $korbanByGender[] = $korbanGender->firstWhere('jenis_kelamin', $g)?->total ?? 0;
+            $tersangkaByGender[] = $tersangkaGender->firstWhere('jenis_kelamin', $g)?->total ?? 0;
+        }
+
+        // Top 5 pekerjaan pelapor
+        $topPekerjaanPelapor = Laporan::query()
+            ->join('orang', 'laporan.pelapor_id', '=', 'orang.id')
+            ->select('orang.pekerjaan', DB::raw('COUNT(DISTINCT laporan.pelapor_id) as total'))
+            ->when($startDate && $endDate, fn($q) => $q->whereBetween('laporan.tanggal_laporan', [$startDate, $endDate]))
+            ->whereNotNull('orang.pekerjaan')
+            ->where('orang.pekerjaan', '!=', '')
+            ->groupBy('orang.pekerjaan')
+            ->orderByDesc('total')
+            ->limit(5)
+            ->get();
+
+        return [
+            'total_pelapor' => $totalPelapor,
+            'total_korban' => $totalKorban,
+            'gender_comparison' => [
+                'labels' => $genderLabels,
+                'pelapor' => $pelaporByGender,
+                'korban' => $korbanByGender,
+                'tersangka' => $tersangkaByGender,
+            ],
+            'top_pekerjaan_pelapor' => [
+                'labels' => $topPekerjaanPelapor->pluck('pekerjaan')->toArray(),
+                'data' => $topPekerjaanPelapor->pluck('total')->toArray(),
+            ],
+        ];
     }
 
     /**
