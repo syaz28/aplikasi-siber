@@ -24,6 +24,7 @@ class AdminLaporanController extends Controller
         $query = Laporan::with([
             'pelapor',
             'korban',
+            'tersangka.identitas', // Load untuk residivis check
             'kategoriKejahatan',
             'assignedBy',
         ]);
@@ -60,6 +61,12 @@ class AdminLaporanController extends Controller
         $query->orderBy('created_at', 'desc');
 
         $laporan = $query->paginate(15)->withQueryString();
+
+        // Add residivis count for each laporan
+        $laporan->getCollection()->transform(function ($item) {
+            $item->residivis_count = $this->countResidivis($item);
+            return $item;
+        });
 
         return Inertia::render('Admin/Laporan/Index', [
             'laporan' => $laporan,
@@ -110,6 +117,41 @@ class AdminLaporanController extends Controller
     }
 
     /**
+     * Count how many other cases share the same suspect identities (for index page).
+     */
+    private function countResidivis(Laporan $laporan): int
+    {
+        $matchedLaporanIds = [];
+        $needsPlatformMatch = ['sosmed', 'ewallet', 'rekening', 'marketplace', 'kripto'];
+
+        foreach ($laporan->tersangka as $tersangka) {
+            foreach ($tersangka->identitas as $identitas) {
+                if (empty($identitas->nilai)) {
+                    continue;
+                }
+
+                $query = IdentitasTersangka::where('nilai', $identitas->nilai)
+                    ->where('id', '!=', $identitas->id)
+                    ->whereHas('tersangka', function ($q) use ($laporan) {
+                        $q->where('laporan_id', '!=', $laporan->id);
+                    });
+
+                if (in_array($identitas->jenis, $needsPlatformMatch) && !empty($identitas->platform)) {
+                    $query->where('platform', $identitas->platform);
+                }
+
+                $duplicates = $query->with(['tersangka'])->get();
+
+                foreach ($duplicates as $duplicate) {
+                    $matchedLaporanIds[] = $duplicate->tersangka->laporan_id;
+                }
+            }
+        }
+
+        return count(array_unique($matchedLaporanIds));
+    }
+
+    /**
      * Detect recidivist suspects by matching digital identities across cases.
      */
     private function detectRecidivist(Laporan $laporan): array
@@ -141,7 +183,7 @@ class AdminLaporanController extends Controller
                 }
 
                 $duplicates = $query->with(['tersangka.laporan' => function ($q) {
-                        $q->select('id', 'nomor_stpa', 'status', 'assigned_subdit', 'tanggal_laporan');
+                        $q->select('id', 'nomor_stpa', 'status', 'assigned_subdit', 'disposisi_unit', 'tanggal_laporan');
                     }])
                     ->get();
 
@@ -158,6 +200,7 @@ class AdminLaporanController extends Controller
                         'nomor_stpa' => $relatedLaporan->nomor_stpa ?: 'Belum ada STPA',
                         'status' => $relatedLaporan->status,
                         'subdit' => $relatedLaporan->assigned_subdit ? 'Subdit ' . $relatedLaporan->assigned_subdit : '-',
+                        'unit' => $relatedLaporan->disposisi_unit ? 'Unit ' . $relatedLaporan->disposisi_unit : 'Menunggu Unit',
                         'tanggal_laporan' => $relatedLaporan->tanggal_laporan?->format('d M Y'),
                     ];
                 }

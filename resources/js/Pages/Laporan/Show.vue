@@ -1,19 +1,36 @@
 <script setup>
 import SidebarLayout from '@/Layouts/SidebarLayout.vue';
 import { Head, Link } from '@inertiajs/vue3';
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 
 const props = defineProps({
     laporan: Object,
     trackRecord: Object,
 });
 
-// State untuk accordion track record
-const expandedTrackRecord = ref({});
+// Check if any tersangka has track record
+const hasAnyTrackRecord = computed(() => {
+    if (!props.trackRecord) return false;
+    return Object.keys(props.trackRecord).some(key => props.trackRecord[key]?.length > 0);
+});
 
-const toggleTrackRecord = (tersangkaId) => {
-    expandedTrackRecord.value[tersangkaId] = !expandedTrackRecord.value[tersangkaId];
-};
+// Get all matches flattened for top-level display
+const allMatches = computed(() => {
+    if (!props.trackRecord) return [];
+    const matches = [];
+    for (const [tersangkaId, trackRecords] of Object.entries(props.trackRecord)) {
+        for (const record of trackRecords) {
+            matches.push({
+                ...record,
+                tersangkaId: parseInt(tersangkaId)
+            });
+        }
+    }
+    // Remove duplicates by laporan_id + nilai combination
+    return matches.filter((match, index, self) =>
+        index === self.findIndex(m => m.laporan_id === match.laporan_id && m.nilai === match.nilai)
+    );
+});
 
 const hasTrackRecord = (tersangkaId) => {
     return props.trackRecord && props.trackRecord[tersangkaId] && props.trackRecord[tersangkaId].length > 0;
@@ -144,6 +161,44 @@ const getAlamatLengkap = (alamat) => {
                         </svg>
                         Cetak STPA (PDF)
                     </a>
+                </div>
+            </div>
+
+            <!-- RESIDIVIS ALERT - Positioned at TOP -->
+            <div v-if="hasAnyTrackRecord" class="mb-6 p-4 bg-red-50 border-2 border-red-300 rounded-xl shadow-sm">
+                <div class="flex items-center gap-3 mb-3">
+                    <span class="relative flex h-4 w-4">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-4 w-4 bg-red-500"></span>
+                    </span>
+                    <h3 class="text-red-800 font-bold text-lg">
+                        ⚠️ Terlapor pada laporan ini juga dilaporkan pada:
+                    </h3>
+                </div>
+                
+                <div class="space-y-2 ml-7">
+                    <div v-for="(match, mIdx) in allMatches" :key="mIdx" class="p-3 bg-white rounded-lg border border-red-200">
+                        <div class="flex items-start gap-2">
+                            <span class="text-red-500 font-bold">•</span>
+                            <div class="flex-1">
+                                <div class="font-medium text-slate-800">
+                                    {{ match.jenis_label }}: <span class="font-mono text-red-600">{{ match.nilai }}</span>
+                                    <span v-if="match.platform" class="text-slate-500 text-xs">({{ match.platform }})</span>
+                                </div>
+                                <div class="text-sm text-slate-600 mt-1">
+                                    Perkara: <span class="font-mono text-amber-600 font-semibold">{{ match.nomor_stpa || 'Belum ada STPA' }}</span>
+                                    <span class="text-slate-400 mx-2">|</span>
+                                    <span class="font-medium text-blue-600">{{ match.subdit }}</span>
+                                    <span class="text-slate-400 mx-2">|</span>
+                                    <span class="font-medium text-purple-600">{{ match.unit }}</span>
+                                    <span class="text-slate-400 mx-2">|</span>
+                                    Status: <span class="font-medium">{{ match.status }}</span>
+                                    <span class="text-slate-400 mx-2">|</span>
+                                    {{ match.tanggal_laporan }}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -303,54 +358,12 @@ const getAlamatLengkap = (alamat) => {
                         
                         <div v-if="laporan?.tersangka?.length > 0" class="space-y-3">
                             <div v-for="(tersangka, idx) in laporan?.tersangka" :key="idx" class="border-b border-slate-100 pb-3 last:border-0 last:pb-0">
-                                <div class="text-xs text-red-500 font-bold mb-2">Tersangka {{ idx + 1 }}</div>
-                                
-                                <!-- ALERT RESIDIVIS -->
-                                <div v-if="hasTrackRecord(tersangka.id)" class="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-                                    <div class="flex items-center justify-between">
-                                        <div class="flex items-center gap-2">
-                                            <span class="relative flex h-3 w-3">
-                                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                                                <span class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
-                                            </span>
-                                            <span class="text-red-700 font-bold text-sm">
-                                                ⚠️ RESIDIVIS - Terdeteksi di {{ getTrackRecordCount(tersangka.id) }} Kasus Lain
-                                            </span>
-                                        </div>
-                                        <button 
-                                            @click="toggleTrackRecord(tersangka.id)"
-                                            class="text-xs text-red-600 hover:text-red-800 font-medium flex items-center gap-1"
-                                        >
-                                            {{ expandedTrackRecord[tersangka.id] ? 'Tutup' : 'Lihat Riwayat Perkara' }}
-                                            <svg class="w-4 h-4 transition-transform" :class="{ 'rotate-180': expandedTrackRecord[tersangka.id] }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                                            </svg>
-                                        </button>
-                                    </div>
-                                    
-                                    <!-- Accordion Content -->
-                                    <div v-if="expandedTrackRecord[tersangka.id]" class="mt-3 pt-3 border-t border-red-200 space-y-2">
-                                        <div v-for="(match, mIdx) in trackRecord[tersangka.id]" :key="mIdx" class="p-2 bg-white rounded border border-red-100 text-sm">
-                                            <div class="flex items-start gap-2">
-                                                <span class="text-red-500">•</span>
-                                                <div class="flex-1">
-                                                    <div class="font-medium text-slate-800">
-                                                        {{ match.jenis_label }}: <span class="font-mono">{{ match.nilai }}</span>
-                                                        <span v-if="match.platform" class="text-slate-500 text-xs">({{ match.platform }})</span>
-                                                    </div>
-                                                    <div class="text-xs text-slate-600 mt-1">
-                                                        Perkara: <span class="font-mono text-amber-600">{{ match.nomor_stpa || 'Belum ada STPA' }}</span>
-                                                        <span class="text-slate-400 mx-1">|</span>
-                                                        <span class="font-medium text-blue-600">{{ match.subdit }}</span>
-                                                        <span class="text-slate-400 mx-1">|</span>
-                                                        Status: <span class="font-medium">{{ match.status }}</span>
-                                                        <span class="text-slate-400 mx-1">|</span>
-                                                        {{ match.tanggal_laporan }}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="text-xs text-red-500 font-bold">Tersangka {{ idx + 1 }}</span>
+                                    <!-- Small indicator if this suspect has track record -->
+                                    <span v-if="hasTrackRecord(tersangka.id)" class="px-2 py-0.5 bg-red-100 text-red-600 text-xs rounded-full font-medium">
+                                        ⚠️ Residivis
+                                    </span>
                                 </div>
                                 
                                 <!-- Identitas Digital Tersangka -->

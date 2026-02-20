@@ -24,6 +24,7 @@ class CaseManagementController extends Controller
             'petugas',
             'provinsiKejadian',
             'kabupatenKejadian',
+            'tersangka.identitas', // Load untuk residivis check
         ])
         ->where('assigned_subdit', $user->subdit);
 
@@ -59,6 +60,12 @@ class CaseManagementController extends Controller
         $laporan = $query->orderBy('created_at', 'desc')
             ->paginate(15)
             ->withQueryString();
+
+        // Add residivis count for each laporan
+        $laporan->getCollection()->transform(function ($item) {
+            $item->residivis_count = $this->countResidivis($item);
+            return $item;
+        });
 
         return Inertia::render('AdminSubdit/Index', [
             'laporan' => $laporan,
@@ -141,6 +148,41 @@ class CaseManagementController extends Controller
     }
 
     /**
+     * Count how many other cases share the same suspect identities (for index page).
+     */
+    private function countResidivis(Laporan $laporan): int
+    {
+        $matchedLaporanIds = [];
+        $needsPlatformMatch = ['sosmed', 'ewallet', 'rekening', 'marketplace', 'kripto'];
+
+        foreach ($laporan->tersangka as $tersangka) {
+            foreach ($tersangka->identitas as $identitas) {
+                if (empty($identitas->nilai)) {
+                    continue;
+                }
+
+                $query = \App\Models\IdentitasTersangka::where('nilai', $identitas->nilai)
+                    ->where('id', '!=', $identitas->id)
+                    ->whereHas('tersangka', function ($q) use ($laporan) {
+                        $q->where('laporan_id', '!=', $laporan->id);
+                    });
+
+                if (in_array($identitas->jenis, $needsPlatformMatch) && !empty($identitas->platform)) {
+                    $query->where('platform', $identitas->platform);
+                }
+
+                $duplicates = $query->with(['tersangka'])->get();
+
+                foreach ($duplicates as $duplicate) {
+                    $matchedLaporanIds[] = $duplicate->tersangka->laporan_id;
+                }
+            }
+        }
+
+        return count(array_unique($matchedLaporanIds));
+    }
+
+    /**
      * Detect recidivist suspects by matching digital identities across cases.
      * 
      * @param Laporan $laporan
@@ -197,6 +239,7 @@ class CaseManagementController extends Controller
                         'nomor_stpa' => $relatedLaporan->nomor_stpa ?: 'Belum ada STPA',
                         'status' => $relatedLaporan->status,
                         'subdit' => $relatedLaporan->assigned_subdit ? 'Subdit ' . $relatedLaporan->assigned_subdit : '-',
+                        'unit' => $relatedLaporan->disposisi_unit ? 'Unit ' . $relatedLaporan->disposisi_unit : 'Menunggu Unit',
                         'tanggal_laporan' => $relatedLaporan->tanggal_laporan?->format('d M Y'),
                     ];
                 }
@@ -294,5 +337,99 @@ class CaseManagementController extends Controller
         ]);
 
         return back()->with('success', 'Status berhasil diperbarui.');
+    }
+
+    /**
+     * Show the form for editing the specified case.
+     */
+    public function edit($id)
+    {
+        $user = Auth::user();
+        
+        $laporan = Laporan::with([
+            'pelapor',
+            'kategoriKejahatan',
+            'petugas',
+            'provinsiKejadian',
+            'kabupatenKejadian',
+            'kecamatanKejadian',
+            'kelurahanKejadian',
+        ])->findOrFail($id);
+
+        // Security check: ensure the case belongs to user's subdit
+        if ($laporan->assigned_subdit !== $user->subdit) {
+            abort(403, 'Anda tidak memiliki akses ke laporan ini.');
+        }
+
+        return Inertia::render('AdminSubdit/Edit', [
+            'laporan' => $laporan,
+            'statusOptions' => [
+                Laporan::STATUS_PENYELIDIKAN => 'Penyelidikan',
+                Laporan::STATUS_PENYIDIKAN => 'Penyidikan',
+                Laporan::STATUS_TAHAP_I => 'Tahap I',
+                Laporan::STATUS_TAHAP_II => 'Tahap II',
+                Laporan::STATUS_SP3 => 'SP3',
+                Laporan::STATUS_RJ => 'RJ',
+                Laporan::STATUS_DIVERSI => 'Diversi',
+            ],
+            'unitOptions' => [1, 2, 3, 4, 5],
+        ]);
+    }
+
+    /**
+     * Update the specified case.
+     */
+    public function update(Request $request, $id)
+    {
+        $user = Auth::user();
+        
+        $laporan = Laporan::findOrFail($id);
+
+        // Security check
+        if ($laporan->assigned_subdit !== $user->subdit) {
+            abort(403, 'Anda tidak memiliki akses ke laporan ini.');
+        }
+
+        $validated = $request->validate([
+            'nomor_stpa' => 'nullable|string|max:50|unique:laporan,nomor_stpa,' . $id,
+            'tanggal_laporan' => 'sometimes|date',
+            'petugas_id' => 'sometimes|exists:users,id',
+            'kategori_kejahatan_id' => 'sometimes|exists:kategori_kejahatan,id',
+            'kode_provinsi_kejadian' => 'nullable|exists:wilayah,kode',
+            'kode_kabupaten_kejadian' => 'nullable|exists:wilayah,kode',
+            'kode_kecamatan_kejadian' => 'nullable|exists:wilayah,kode',
+            'kode_kelurahan_kejadian' => 'nullable|exists:wilayah,kode',
+            'alamat_kejadian' => 'nullable|string',
+            'waktu_kejadian' => 'nullable|date',
+            'modus' => 'nullable|string',
+            'status' => ['sometimes', Rule::in([
+                Laporan::STATUS_PENYELIDIKAN,
+                Laporan::STATUS_PENYIDIKAN,
+                Laporan::STATUS_TAHAP_I,
+                Laporan::STATUS_TAHAP_II,
+                Laporan::STATUS_SP3,
+                Laporan::STATUS_RJ,
+                Laporan::STATUS_DIVERSI,
+            ])],
+            'disposisi_unit' => 'nullable|integer|min:1|max:5',
+            'catatan' => 'nullable|string',
+        ], [
+            'nomor_stpa.unique' => 'Nomor STPA sudah digunakan',
+        ]);
+
+        try {
+            $validated['updated_by'] = $user->id;
+            $laporan->update($validated);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Laporan berhasil diperbarui',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal memperbarui laporan: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 }

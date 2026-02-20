@@ -19,8 +19,16 @@ export function useToast() {
 
     const success = (message, duration = 4000) => show(message, 'success', duration);
     const error = (message, duration = 5000) => show(message, 'error', duration);
-    const warning = (message, duration = 4000) => show(message, 'warning', duration);
+    const warning = (message, duration = 5000) => show(message, 'warning', duration);
     const info = (message, duration = 4000) => show(message, 'info', duration);
+    
+    // Smart success - detects warning emoji and shows as warning type with longer duration
+    const smartSuccess = (message, duration = 4000) => {
+        if (message.includes('⚠️') || message.includes('PERINGATAN')) {
+            return show(message, 'warning', 6000); // Longer duration for warnings
+        }
+        return show(message, 'success', duration);
+    };
 
     const remove = (id) => {
         const index = toasts.findIndex(t => t.id === id);
@@ -36,6 +44,7 @@ export function useToast() {
         error,
         warning,
         info,
+        smartSuccess,
         remove
     };
 }

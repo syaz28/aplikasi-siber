@@ -1,7 +1,7 @@
 <script setup>
 import AdminLayout from '@/Layouts/AdminLayout.vue';
 import ToastContainer from '@/Components/ToastContainer.vue';
-import { Head, Link, router, usePage } from '@inertiajs/vue3';
+import { Head, Link, router, usePage, useForm } from '@inertiajs/vue3';
 import { ref, watch, computed, onMounted } from 'vue';
 import { useToast } from '@/Composables/useToast';
 
@@ -28,6 +28,51 @@ onMounted(() => {
 const search = ref(props.filters?.search || '');
 const pangkat = ref(props.filters?.pangkat || '');
 const subdit = ref(props.filters?.subdit || '');
+
+// Import Modal State
+const showImportModal = ref(false);
+const importForm = useForm({
+    file: null,
+});
+const selectedFileName = ref('');
+
+const openImportModal = () => {
+    showImportModal.value = true;
+    importForm.reset();
+    selectedFileName.value = '';
+};
+
+const closeImportModal = () => {
+    showImportModal.value = false;
+    importForm.reset();
+    selectedFileName.value = '';
+};
+
+const handleFileSelect = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+        importForm.file = file;
+        selectedFileName.value = file.name;
+    }
+};
+
+const submitImport = () => {
+    if (!importForm.file) {
+        toast.error('Pilih file Excel terlebih dahulu');
+        return;
+    }
+    
+    importForm.post('/admin/personels/import', {
+        forceFormData: true,
+        onSuccess: () => {
+            closeImportModal();
+        },
+        onError: (errors) => {
+            const firstError = Object.values(errors)[0];
+            toast.error(firstError);
+        }
+    });
+};
 
 const getSubditName = (id) => {
     const subdits = {
@@ -119,15 +164,28 @@ const hasFilters = computed(() => {
                     <h2 class="text-2xl font-bold text-navy">Manajemen Data Personel</h2>
                     <p class="text-gray-500 mt-1">Kelola data anggota personel kepolisian</p>
                 </div>
-                <Link
-                    href="/admin/personels/create"
-                    class="inline-flex items-center gap-2 px-4 py-2 bg-tactical-accent hover:bg-tactical-accent-dark text-white rounded-lg font-medium transition-colors"
-                >
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                    </svg>
-                    Tambah Personel
-                </Link>
+                <div class="flex items-center gap-3">
+                    <!-- Import Excel Button -->
+                    <button
+                        @click="openImportModal"
+                        class="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"
+                    >
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+                        </svg>
+                        Import Excel
+                    </button>
+                    <!-- Add Personel Button -->
+                    <Link
+                        href="/admin/personels/create"
+                        class="inline-flex items-center gap-2 px-4 py-2 bg-tactical-accent hover:bg-tactical-accent-dark text-white rounded-lg font-medium transition-colors"
+                    >
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                        </svg>
+                        Tambah Personel
+                    </Link>
+                </div>
             </div>
 
             <!-- Filters Section -->
@@ -353,6 +411,105 @@ const hasFilters = computed(() => {
                                         Ya, Hapus
                                     </button>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </Transition>
+
+            <!-- Import Modal -->
+            <Transition
+                enter-active-class="transition ease-out duration-200"
+                enter-from-class="opacity-0"
+                enter-to-class="opacity-100"
+                leave-active-class="transition ease-in duration-150"
+                leave-from-class="opacity-100"
+                leave-to-class="opacity-0"
+            >
+                <div v-if="showImportModal" class="fixed inset-0 z-50 overflow-y-auto">
+                    <div class="fixed inset-0 bg-black/50" @click="closeImportModal"></div>
+                    <div class="flex min-h-full items-center justify-center p-4">
+                        <div class="relative bg-white rounded-2xl shadow-xl max-w-lg w-full p-6">
+                            <div class="flex items-center justify-between mb-6">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
+                                        <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-gray-900">Import Data Personel</h3>
+                                        <p class="text-sm text-gray-500">Format file DAPERS (.xlsx, .xls)</p>
+                                    </div>
+                                </div>
+                                <button @click="closeImportModal" class="text-gray-400 hover:text-gray-600">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+
+                            <!-- File Input -->
+                            <div class="mb-6">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Pilih File Excel</label>
+                                <div class="relative">
+                                    <input
+                                        type="file"
+                                        @change="handleFileSelect"
+                                        accept=".xlsx,.xls,.csv"
+                                        class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                    />
+                                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-green-400 transition-colors">
+                                        <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                        <p class="mt-2 text-sm text-gray-600">
+                                            <span v-if="selectedFileName" class="text-green-600 font-medium">{{ selectedFileName }}</span>
+                                            <span v-else>Klik untuk memilih file atau drag & drop</span>
+                                        </p>
+                                        <p class="mt-1 text-xs text-gray-500">XLSX, XLS, CSV (Max 10MB)</p>
+                                    </div>
+                                </div>
+                                <p v-if="importForm.errors.file" class="mt-2 text-sm text-red-600">{{ importForm.errors.file }}</p>
+                            </div>
+
+                            <!-- Info Box -->
+                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                                <div class="flex gap-3">
+                                    <svg class="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <div class="text-sm text-blue-700">
+                                        <p class="font-medium mb-1">Format File DAPERS:</p>
+                                        <ul class="list-disc list-inside space-y-0.5 text-xs">
+                                            <li>Header pada baris ke-8</li>
+                                            <li>Kolom: NO, NAMA, PANGKAT/NRP, JABATAN</li>
+                                            <li>Data personel yang sudah ada akan dilewati</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Actions -->
+                            <div class="flex gap-3">
+                                <button
+                                    @click="closeImportModal"
+                                    class="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors"
+                                >
+                                    Batal
+                                </button>
+                                <button
+                                    @click="submitImport"
+                                    :disabled="!importForm.file || importForm.processing"
+                                    class="flex-1 px-4 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <svg v-if="importForm.processing" class="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    <span v-if="importForm.processing">Mengimport...</span>
+                                    <span v-else>Import Data</span>
+                                </button>
                             </div>
                         </div>
                     </div>

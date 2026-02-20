@@ -15,12 +15,29 @@ const props = defineProps({
 const toast = useToast();
 const page = usePage();
 
-// Track record accordion state (per suspect)
-const expandedTrackRecord = ref({});
+// Check if any tersangka has track record
+const hasAnyTrackRecord = computed(() => {
+    if (!props.trackRecord) return false;
+    return Object.keys(props.trackRecord).some(key => props.trackRecord[key]?.length > 0);
+});
 
-const toggleTrackRecord = (suspectId) => {
-    expandedTrackRecord.value[suspectId] = !expandedTrackRecord.value[suspectId];
-};
+// Get all matches flattened for top-level display
+const allMatches = computed(() => {
+    if (!props.trackRecord) return [];
+    const matches = [];
+    for (const [tersangkaId, trackRecords] of Object.entries(props.trackRecord)) {
+        for (const record of trackRecords) {
+            matches.push({
+                ...record,
+                tersangkaId: parseInt(tersangkaId)
+            });
+        }
+    }
+    // Remove duplicates by laporan_id + nilai combination
+    return matches.filter((match, index, self) =>
+        index === self.findIndex(m => m.laporan_id === match.laporan_id && m.nilai === match.nilai)
+    );
+});
 
 const hasTrackRecord = (suspectId) => {
     return props.trackRecord && props.trackRecord[suspectId] && props.trackRecord[suspectId].length > 0;
@@ -29,7 +46,7 @@ const hasTrackRecord = (suspectId) => {
 const getTrackRecordCount = (suspectId) => {
     if (!props.trackRecord || !props.trackRecord[suspectId]) return 0;
     // Count unique cases
-    const uniqueCases = new Set(props.trackRecord[suspectId].map(m => m.related_case.id));
+    const uniqueCases = new Set(props.trackRecord[suspectId].map(m => m.laporan_id));
     return uniqueCases.size;
 };
 
@@ -215,13 +232,64 @@ const getAlamatLengkap = (alamat) => {
                     </Link>
                     <h1 class="text-2xl font-bold text-navy">Detail Kasus</h1>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-3">
+                    <!-- Edit Button -->
+                    <Link
+                        :href="`/min-ops/kasus/${laporan.id}/edit`"
+                        class="inline-flex items-center gap-2 px-4 py-2 bg-tactical-accent hover:bg-blue-600 text-white rounded-lg font-medium transition-colors"
+                    >
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                        Edit Laporan
+                    </Link>
                     <span v-if="laporan.disposisi_unit" :class="['px-3 py-1.5 rounded-lg text-sm font-medium border', getUnitClass(laporan.disposisi_unit)]">
                         Unit {{ laporan.disposisi_unit }}
                     </span>
                     <span :class="['px-3 py-1.5 rounded-full text-sm font-medium', getStatusClass(laporan.status)]">
                         {{ getStatusLabel(laporan.status) }}
                     </span>
+                </div>
+            </div>
+
+            <!-- RESIDIVIS ALERT - Positioned at TOP -->
+            <div v-if="hasAnyTrackRecord" class="mb-6 p-4 bg-red-50 border-2 border-red-300 rounded-xl shadow-sm">
+                <div class="flex items-center gap-3 mb-3">
+                    <span class="relative flex h-4 w-4">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-4 w-4 bg-red-500"></span>
+                    </span>
+                    <h3 class="text-red-800 font-bold text-lg">
+                        ⚠️ Terlapor pada laporan ini juga dilaporkan pada:
+                    </h3>
+                </div>
+                
+                <div class="space-y-2 ml-7">
+                    <div v-for="(match, mIdx) in allMatches" :key="mIdx" class="p-3 bg-white rounded-lg border border-red-200">
+                        <div class="flex items-start gap-2">
+                            <span class="text-red-500 font-bold">•</span>
+                            <div class="flex-1">
+                                <div class="font-medium text-slate-800">
+                                    {{ match.jenis_label }}: <span class="font-mono text-red-600">{{ match.nilai }}</span>
+                                    <span v-if="match.platform" class="text-slate-500 text-xs">({{ match.platform }})</span>
+                                </div>
+                                <div class="text-sm text-slate-600 mt-1">
+                                    Perkara: 
+                                    <a :href="`/min-ops/kasus/${match.laporan_id}`" class="font-mono text-amber-600 font-semibold hover:underline">
+                                        {{ match.nomor_stpa || 'Belum ada STPA' }}
+                                    </a>
+                                    <span class="text-slate-400 mx-2">|</span>
+                                    <span class="font-medium text-blue-600">{{ match.subdit }}</span>
+                                    <span class="text-slate-400 mx-2">|</span>
+                                    <span class="font-medium text-purple-600">{{ match.unit }}</span>
+                                    <span class="text-slate-400 mx-2">|</span>
+                                    Status: <span class="font-medium">{{ match.status }}</span>
+                                    <span class="text-slate-400 mx-2">|</span>
+                                    {{ match.tanggal_laporan }}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -411,18 +479,13 @@ const getAlamatLengkap = (alamat) => {
                         <div v-if="laporan.tersangka?.length > 0" class="space-y-4">
                             <div v-for="(tersangka, idx) in laporan.tersangka" :key="tersangka.id || idx" class="border border-gray-200 rounded-lg p-4">
                                 <!-- Header with Alert Badge -->
-                                <div class="flex items-center justify-between mb-3">
-                                    <div class="text-sm text-red-600 font-bold">Tersangka {{ idx + 1 }}</div>
+                                <div class="flex items-center gap-2 mb-3">
+                                    <span class="text-sm text-red-600 font-bold">Tersangka {{ idx + 1 }}</span>
                                     
-                                    <!-- RESIDIVIS ALERT BADGE -->
-                                    <div v-if="hasTrackRecord(tersangka.id)" class="flex items-center gap-2">
-                                        <span class="inline-flex items-center gap-1 px-3 py-1 bg-red-100 text-red-700 text-xs font-bold rounded-full border border-red-300 animate-pulse">
-                                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
-                                            </svg>
-                                            RESIDIVIS - Terdeteksi di {{ getTrackRecordCount(tersangka.id) }} Kasus Lain
-                                        </span>
-                                    </div>
+                                    <!-- Small RESIDIVIS Badge -->
+                                    <span v-if="hasTrackRecord(tersangka.id)" class="px-2 py-0.5 bg-red-100 text-red-600 text-xs rounded-full font-medium">
+                                        ⚠️ Residivis
+                                    </span>
                                 </div>
 
                                 <!-- Identitas Digital Tersangka -->
@@ -436,82 +499,8 @@ const getAlamatLengkap = (alamat) => {
                                 </div>
                                 <div v-else class="text-sm text-gray-400 italic ml-3 mb-3">Tidak ada identitas digital</div>
                                 
-                                <div v-if="tersangka.catatan" class="text-xs text-gray-600 italic ml-3 mb-3">
+                                <div v-if="tersangka.catatan" class="text-xs text-gray-600 italic ml-3">
                                     Catatan: "{{ tersangka.catatan }}"
-                                </div>
-
-                                <!-- TRACK RECORD ACCORDION -->
-                                <div v-if="hasTrackRecord(tersangka.id)" class="mt-3 border-t border-red-200 pt-3">
-                                    <!-- Toggle Button -->
-                                    <button 
-                                        @click="toggleTrackRecord(tersangka.id)"
-                                        class="w-full flex items-center justify-between px-3 py-2 bg-red-50 hover:bg-red-100 rounded-lg text-sm font-medium text-red-700 transition-colors"
-                                    >
-                                        <span class="flex items-center gap-2">
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                            </svg>
-                                            Lihat Riwayat Perkara ({{ trackRecord[tersangka.id]?.length || 0 }} kecocokan)
-                                        </span>
-                                        <svg 
-                                            class="w-4 h-4 transition-transform duration-200" 
-                                            :class="{ 'rotate-180': expandedTrackRecord[tersangka.id] }"
-                                            fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                                        >
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                                        </svg>
-                                    </button>
-
-                                    <!-- Expanded Content -->
-                                    <div v-if="expandedTrackRecord[tersangka.id]" class="mt-3 space-y-2">
-                                        <div class="text-xs font-bold text-red-600 uppercase tracking-wider mb-2">
-                                            🔍 Identitas Digital yang Cocok:
-                                        </div>
-                                        
-                                        <div 
-                                            v-for="(match, matchIdx) in trackRecord[tersangka.id]" 
-                                            :key="matchIdx"
-                                            class="p-3 bg-red-50 border border-red-200 rounded-lg"
-                                        >
-                                            <!-- Match Info -->
-                                            <div class="flex items-start gap-2 mb-2">
-                                                <span class="text-red-500 font-bold">🔴</span>
-                                                <div class="flex-1">
-                                                    <span class="font-semibold text-red-800">{{ match.jenis_label }}:</span>
-                                                    <span class="font-mono text-red-700 ml-1">{{ match.nilai }}</span>
-                                                    <span v-if="match.platform" class="text-xs text-red-500 ml-1">({{ match.platform }})</span>
-                                                </div>
-                                            </div>
-                                            
-                                            <!-- Related Case Details -->
-                                            <div class="ml-5 text-xs space-y-1 text-red-700">
-                                                <div class="flex items-center gap-2">
-                                                    <span class="text-red-500">↳</span>
-                                                    <span>Juga ditemukan di:</span>
-                                                    <a 
-                                                        :href="`/min-ops/kasus/${match.laporan_id}`"
-                                                        class="font-bold underline hover:text-red-900"
-                                                    >
-                                                        {{ match.nomor_stpa }}
-                                                    </a>
-                                                </div>
-                                                <div class="ml-4 grid grid-cols-3 gap-x-4 gap-y-1 text-red-600">
-                                                    <div>
-                                                        <span class="text-red-500">Subdit:</span> 
-                                                        <span class="font-medium">{{ match.subdit }}</span>
-                                                    </div>
-                                                    <div>
-                                                        <span class="text-red-500">Status:</span> 
-                                                        <span class="font-medium">{{ match.status }}</span>
-                                                    </div>
-                                                    <div>
-                                                        <span class="text-red-500">Tanggal:</span> 
-                                                        <span class="font-medium">{{ match.tanggal_laporan }}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
                                 </div>
                             </div>
                         </div>

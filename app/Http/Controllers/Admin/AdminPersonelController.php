@@ -3,11 +3,13 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Imports\PersonelImport;
 use App\Models\Personel;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
+use Maatwebsite\Excel\Facades\Excel;
 
 /**
  * AdminPersonelController
@@ -178,5 +180,35 @@ class AdminPersonelController extends Controller
 
         return redirect()->route('admin.personels.index')
             ->with('success', 'Data personel berhasil dihapus');
+    }
+
+    /**
+     * Import personels from Excel file (DAPERS format).
+     */
+    public function import(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:xlsx,xls,csv|max:10240', // Max 10MB
+        ], [
+            'file.required' => 'File Excel wajib diunggah',
+            'file.mimes' => 'File harus berformat Excel (.xlsx, .xls) atau CSV',
+            'file.max' => 'Ukuran file maksimal 10MB',
+        ]);
+
+        try {
+            $import = new PersonelImport();
+            Excel::import($import, $request->file('file'));
+
+            $message = "{$import->importedCount} data personel berhasil diimport.";
+            if ($import->skippedCount > 0) {
+                $message .= " ({$import->skippedCount} baris dilewati karena data tidak valid atau duplikat)";
+            }
+
+            return redirect()->route('admin.personels.index')
+                ->with('success', $message);
+        } catch (\Exception $e) {
+            return redirect()->back()
+                ->with('error', 'Gagal mengimport data: ' . $e->getMessage());
+        }
     }
 }

@@ -696,7 +696,8 @@ const submitForm = async () => {
             // Clear draft
             storage.clearDraft();
             
-            toast.success('Laporan berhasil disimpan!');
+            // Use smartSuccess to detect warning messages
+            toast.smartSuccess(response.data.message || 'Laporan berhasil disimpan!');
             
             // Show Success UI instead of opening PDF
             isSuccess.value = true;

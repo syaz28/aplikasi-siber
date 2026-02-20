@@ -24,6 +24,7 @@ Route::middleware(['auth', 'verified', 'role:admin'])->prefix('admin')->name('ad
     
     // Kelola Personel (CRUD) - NEW: Replaces User Management
     Route::resource('personels', AdminPersonelController::class);
+    Route::post('personels/import', [AdminPersonelController::class, 'import'])->name('personels.import');
     
     // Legacy: Kelola User (CRUD) - Keep for reference but hidden from nav
     Route::resource('users', AdminUserController::class);

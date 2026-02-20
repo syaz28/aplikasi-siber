@@ -288,16 +288,38 @@ const getStatusClass = (stat) => {
                                     </div>
                                 </td>
                                 <td class="px-4 py-3 text-right">
-                                    <Link
-                                        :href="`/admin/laporan/${lap.id}`"
-                                        class="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition inline-flex"
-                                        title="Lihat Detail"
-                                    >
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                        </svg>
-                                    </Link>
+                                    <div class="flex items-center justify-end gap-1">
+                                        <!-- Residivis Warning Icon -->
+                                        <div 
+                                            v-if="lap.residivis_count > 0" 
+                                            class="relative group"
+                                            title="Terindikasi Residivis/Sindikat"
+                                        >
+                                            <span class="relative flex h-6 w-6 items-center justify-center">
+                                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                                                <svg class="relative w-5 h-5 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                                </svg>
+                                            </span>
+                                            <!-- Tooltip -->
+                                            <div class="absolute bottom-full right-0 mb-2 hidden group-hover:block z-10">
+                                                <div class="bg-gray-900 text-white text-xs rounded py-1 px-2 whitespace-nowrap">
+                                                    ⚠️ Terindikasi Residivis ({{ lap.residivis_count }} kasus lain)
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <Link
+                                            :href="`/admin/laporan/${lap.id}`"
+                                            class="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition inline-flex"
+                                            title="Lihat Detail"
+                                        >
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                            </svg>
+                                        </Link>
+                                    </div>
                                 </td>
                             </tr>
                         </tbody>

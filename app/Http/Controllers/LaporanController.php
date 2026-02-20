@@ -70,7 +70,7 @@ class LaporanController extends Controller
         $query = Laporan::with([
             'pelapor',
             'korban', // Load korban with kerugian_nominal
-            'tersangka',
+            'tersangka.identitas', // Load tersangka with identitas for residivis check
             'kategoriKejahatan',
             'petugas',
         ]);
@@ -112,6 +112,12 @@ class LaporanController extends Controller
         $perPage = $request->input('per_page', 15);
         $laporan = $query->paginate($perPage)->withQueryString();
 
+        // Add residivis count for each laporan
+        $laporan->getCollection()->transform(function ($item) {
+            $item->residivis_count = $this->countResidivis($item);
+            return $item;
+        });
+
         // Return JSON for API calls
         if ($request->wantsJson()) {
             return response()->json($laporan);
@@ -123,6 +129,43 @@ class LaporanController extends Controller
             'filters' => $request->only(['search', 'status', 'kategori_kejahatan_id', 'tanggal_dari', 'tanggal_sampai']),
             'statusOptions' => Laporan::getStatusOptions(),
         ]);
+    }
+
+    /**
+     * Count how many other cases share the same suspect identities.
+     */
+    private function countResidivis(Laporan $laporan): int
+    {
+        $matchedLaporanIds = [];
+        $needsPlatformMatch = ['sosmed', 'ewallet', 'rekening', 'marketplace', 'kripto'];
+
+        foreach ($laporan->tersangka as $tersangka) {
+            foreach ($tersangka->identitas as $identitas) {
+                if (empty($identitas->nilai)) {
+                    continue;
+                }
+
+                $query = IdentitasTersangka::where('nilai', $identitas->nilai)
+                    ->where('id', '!=', $identitas->id)
+                    ->whereHas('tersangka', function ($q) use ($laporan) {
+                        $q->where('laporan_id', '!=', $laporan->id);
+                    });
+
+                if (in_array($identitas->jenis, $needsPlatformMatch) && !empty($identitas->platform)) {
+                    $query->where('platform', $identitas->platform);
+                }
+
+                $duplicates = $query->with('tersangka:id,laporan_id')->get();
+
+                foreach ($duplicates as $duplicate) {
+                    if ($duplicate->tersangka && $duplicate->tersangka->laporan_id) {
+                        $matchedLaporanIds[] = $duplicate->tersangka->laporan_id;
+                    }
+                }
+            }
+        }
+
+        return count(array_unique($matchedLaporanIds));
     }
 
     /**
@@ -404,10 +447,20 @@ class LaporanController extends Controller
             // Load relationships for response
             $laporan->load($this->eagerLoads);
 
+            // Check for residivis after saving
+            $residivisCount = $this->countResidivis($laporan);
+
+            // Build response message
+            $message = 'Laporan berhasil disimpan';
+            if ($residivisCount > 0) {
+                $message = "✅ Laporan Berhasil. ⚠️ PERINGATAN: Terlapor terdeteksi di {$residivisCount} kasus lain! Cek detail sekarang.";
+            }
+
             return response()->json([
                 'success' => true,
-                'message' => 'Laporan berhasil disimpan',
+                'message' => $message,
                 'data' => $laporan,
+                'residivis_count' => $residivisCount,
             ], 201);
 
         } catch (\Exception $e) {
@@ -503,6 +556,7 @@ class LaporanController extends Controller
                         'nomor_stpa' => $relatedLaporan->nomor_stpa ?: 'Belum ada STPA',
                         'status' => $relatedLaporan->status,
                         'subdit' => $relatedLaporan->assigned_subdit ? 'Subdit ' . $relatedLaporan->assigned_subdit : '-',
+                        'unit' => $relatedLaporan->disposisi_unit ? 'Unit ' . $relatedLaporan->disposisi_unit : 'Menunggu Unit',
                         'tanggal_laporan' => $relatedLaporan->tanggal_laporan?->format('d M Y'),
                     ];
                 }

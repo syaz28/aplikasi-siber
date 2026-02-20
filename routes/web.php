@@ -162,6 +162,8 @@ Route::middleware(['auth', 'verified', 'role:admin_subdit'])->prefix('min-ops')-
     // Case Management (Manajemen Kasus)
     Route::get('/', [CaseManagementController::class, 'index'])->name('index');
     Route::get('/kasus/{id}', [CaseManagementController::class, 'show'])->name('show');
+    Route::get('/kasus/{id}/edit', [CaseManagementController::class, 'edit'])->name('edit');
+    Route::put('/kasus/{id}', [CaseManagementController::class, 'update'])->name('update');
     Route::patch('/kasus/{id}/unit', [CaseManagementController::class, 'updateUnit'])->name('update-unit');
     Route::patch('/kasus/{id}/status', [CaseManagementController::class, 'updateStatus'])->name('update-status');
 });
