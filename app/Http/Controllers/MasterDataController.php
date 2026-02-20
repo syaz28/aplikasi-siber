@@ -7,6 +7,7 @@ use App\Models\MasterCountry;
 use App\Models\MasterPekerjaan;
 use App\Models\MasterPendidikan;
 use App\Models\MasterPlatform;
+use App\Models\Orang;
 use App\Models\Personel;
 use App\Models\User;
 use App\Models\Wilayah;
@@ -335,6 +336,72 @@ class MasterDataController extends Controller
         return response()->json([
             'success' => true,
             'data' => $countries,
+        ]);
+    }
+
+    /**
+     * Search orang by NIK for auto-fill functionality
+     * Returns person data with addresses if found
+     */
+    public function searchOrangByNik(Request $request): JsonResponse
+    {
+        $nik = $request->input('nik');
+        
+        if (!$nik || strlen($nik) < 10) {
+            return response()->json([
+                'success' => false,
+                'message' => 'NIK harus minimal 10 karakter',
+            ]);
+        }
+
+        $orang = Orang::with([
+            'alamatKtp',
+            'alamatDomisili',
+        ])->where('nik', $nik)->first();
+
+        if (!$orang) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Data tidak ditemukan',
+                'found' => false,
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'found' => true,
+            'data' => [
+                'id' => $orang->id,
+                'nik' => $orang->nik,
+                'nama' => $orang->nama,
+                'kewarganegaraan' => $orang->kewarganegaraan ?? 'WNI',
+                'negara_asal' => $orang->negara_asal,
+                'tempat_lahir' => $orang->tempat_lahir,
+                'tanggal_lahir' => $orang->tanggal_lahir?->format('Y-m-d'),
+                'jenis_kelamin' => $orang->jenis_kelamin,
+                'pekerjaan' => $orang->pekerjaan,
+                'pendidikan' => $orang->pendidikan,
+                'telepon' => $orang->telepon,
+                'email' => $orang->email,
+                'alamat_ktp' => $orang->alamatKtp ? [
+                    'kode_provinsi' => $orang->alamatKtp->kode_provinsi,
+                    'kode_kabupaten' => $orang->alamatKtp->kode_kabupaten,
+                    'kode_kecamatan' => $orang->alamatKtp->kode_kecamatan,
+                    'kode_kelurahan' => $orang->alamatKtp->kode_kelurahan,
+                    'detail_alamat' => $orang->alamatKtp->detail_alamat,
+                ] : null,
+                'alamat_domisili' => $orang->alamatDomisili ? [
+                    'kode_provinsi' => $orang->alamatDomisili->kode_provinsi,
+                    'kode_kabupaten' => $orang->alamatDomisili->kode_kabupaten,
+                    'kode_kecamatan' => $orang->alamatDomisili->kode_kecamatan,
+                    'kode_kelurahan' => $orang->alamatDomisili->kode_kelurahan,
+                    'detail_alamat' => $orang->alamatDomisili->detail_alamat,
+                ] : null,
+                // Info untuk user
+                'is_pelapor' => $orang->laporanSebagaiPelapor()->count() > 0,
+                'is_korban' => $orang->sebagaiKorban()->count() > 0,
+                'is_tersangka' => $orang->sebagaiTersangka()->count() > 0,
+            ],
         ]);
     }
 

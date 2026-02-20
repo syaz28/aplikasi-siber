@@ -10,7 +10,21 @@ const props = defineProps({
     laporanStats: Object,
     laporanBaru: Array,
     aktivitasTerakhir: Array,
+    pelaporTersangkaSummary: Object,
 });
+
+// Get jenis identity label
+const getJenisLabel = (jenis) => {
+    const labels = {
+        'rekening': 'Rekening',
+        'telepon': 'Telepon',
+        'email': 'Email',
+        'social_media': 'Sosial Media',
+        'website': 'Website',
+        'lainnya': 'Lainnya',
+    };
+    return labels[jenis] || jenis;
+};
 
 const toast = useToast();
 const page = usePage();
@@ -305,6 +319,182 @@ const getTotalKerugian = (korban) => {
                             <p class="text-xs text-slate-500 mt-1">
                                 oleh {{ act.assigned_by?.name || 'Admin' }} • {{ formatDate(act.assigned_at) }}
                             </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- =============================================
+                 PELAPOR & TERSANGKA SUMMARY
+                 ============================================= -->
+            <div v-if="pelaporTersangkaSummary" class="space-y-4">
+                <h2 class="text-lg font-semibold text-slate-800">Ringkasan Pelapor & Tersangka</h2>
+                
+                <!-- Stats Cards -->
+                <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+                    <!-- Total Pelapor -->
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                        <div class="flex flex-col items-center text-center">
+                            <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center mb-2">
+                                <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                </svg>
+                            </div>
+                            <p class="text-xs text-slate-500">Pelapor</p>
+                            <p class="text-xl font-bold text-blue-600">{{ pelaporTersangkaSummary.total_pelapor }}</p>
+                        </div>
+                    </div>
+
+                    <!-- Total Korban -->
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                        <div class="flex flex-col items-center text-center">
+                            <div class="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center mb-2">
+                                <svg class="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                                </svg>
+                            </div>
+                            <p class="text-xs text-slate-500">Korban</p>
+                            <p class="text-xl font-bold text-orange-600">{{ pelaporTersangkaSummary.total_korban }}</p>
+                        </div>
+                    </div>
+
+                    <!-- Total Tersangka -->
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                        <div class="flex flex-col items-center text-center">
+                            <div class="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center mb-2">
+                                <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                </svg>
+                            </div>
+                            <p class="text-xs text-slate-500">Tersangka</p>
+                            <p class="text-xl font-bold text-purple-600">{{ pelaporTersangkaSummary.total_tersangka }}</p>
+                        </div>
+                    </div>
+
+                    <!-- Belum Teridentifikasi -->
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                        <div class="flex flex-col items-center text-center">
+                            <div class="w-10 h-10 rounded-lg bg-yellow-100 flex items-center justify-center mb-2">
+                                <svg class="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            </div>
+                            <p class="text-xs text-slate-500">Belum ID</p>
+                            <p class="text-xl font-bold text-yellow-600">{{ pelaporTersangkaSummary.unidentified_tersangka }}</p>
+                        </div>
+                    </div>
+
+                    <!-- Tersangka Terhubung -->
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                        <div class="flex flex-col items-center text-center">
+                            <div class="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center mb-2">
+                                <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                </svg>
+                            </div>
+                            <p class="text-xs text-slate-500">Terhubung</p>
+                            <p class="text-xl font-bold text-red-600">{{ pelaporTersangkaSummary.linked_tersangka }}</p>
+                        </div>
+                    </div>
+
+                    <!-- Linked Groups -->
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                        <div class="flex flex-col items-center text-center">
+                            <div class="w-10 h-10 rounded-lg bg-pink-100 flex items-center justify-center mb-2">
+                                <svg class="w-5 h-5 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857m0 0a5.002 5.002 0 00-9.288 0M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0" />
+                                </svg>
+                            </div>
+                            <p class="text-xs text-slate-500">Grup Link</p>
+                            <p class="text-xl font-bold text-pink-600">{{ pelaporTersangkaSummary.linked_groups }}</p>
+                        </div>
+                    </div>
+
+                    <!-- Total Kerugian -->
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                        <div class="flex flex-col items-center text-center">
+                            <div class="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center mb-2">
+                                <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            </div>
+                            <p class="text-xs text-slate-500">Kerugian</p>
+                            <p class="text-sm font-bold text-green-600">{{ formatRupiah(pelaporTersangkaSummary.total_kerugian) }}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tersangka per Subdit & Identity Types -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Tersangka per Subdit -->
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                        <h3 class="text-lg font-semibold text-slate-800 mb-4">Tersangka per Subdit</h3>
+                        <div class="space-y-3">
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm text-slate-600">Subdit 1</span>
+                                <span class="px-2 py-1 bg-purple-100 text-purple-700 rounded text-sm font-medium">
+                                    {{ pelaporTersangkaSummary.tersangka_by_subdit?.subdit_1 || 0 }}
+                                </span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm text-slate-600">Subdit 2</span>
+                                <span class="px-2 py-1 bg-purple-100 text-purple-700 rounded text-sm font-medium">
+                                    {{ pelaporTersangkaSummary.tersangka_by_subdit?.subdit_2 || 0 }}
+                                </span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm text-slate-600">Subdit 3</span>
+                                <span class="px-2 py-1 bg-purple-100 text-purple-700 rounded text-sm font-medium">
+                                    {{ pelaporTersangkaSummary.tersangka_by_subdit?.subdit_3 || 0 }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Top Identity Types -->
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                        <h3 class="text-lg font-semibold text-slate-800 mb-4">Jenis Identitas Digital Tersangka</h3>
+                        <div class="flex flex-wrap gap-2">
+                            <div 
+                                v-for="(item, index) in pelaporTersangkaSummary.top_identity_types" 
+                                :key="index"
+                                class="flex items-center gap-2 px-3 py-2 rounded-lg"
+                                :class="{
+                                    'bg-blue-50': item.jenis === 'rekening',
+                                    'bg-green-50': item.jenis === 'telepon',
+                                    'bg-purple-50': item.jenis === 'email',
+                                    'bg-pink-50': item.jenis === 'social_media',
+                                    'bg-gray-50': !['rekening', 'telepon', 'email', 'social_media'].includes(item.jenis)
+                                }"
+                            >
+                                <span 
+                                    class="text-sm font-medium"
+                                    :class="{
+                                        'text-blue-700': item.jenis === 'rekening',
+                                        'text-green-700': item.jenis === 'telepon',
+                                        'text-purple-700': item.jenis === 'email',
+                                        'text-pink-700': item.jenis === 'social_media',
+                                        'text-gray-700': !['rekening', 'telepon', 'email', 'social_media'].includes(item.jenis)
+                                    }"
+                                >
+                                    {{ getJenisLabel(item.jenis) }}
+                                </span>
+                                <span 
+                                    class="px-1.5 py-0.5 text-xs font-bold rounded-full"
+                                    :class="{
+                                        'bg-blue-200 text-blue-800': item.jenis === 'rekening',
+                                        'bg-green-200 text-green-800': item.jenis === 'telepon',
+                                        'bg-purple-200 text-purple-800': item.jenis === 'email',
+                                        'bg-pink-200 text-pink-800': item.jenis === 'social_media',
+                                        'bg-gray-200 text-gray-800': !['rekening', 'telepon', 'email', 'social_media'].includes(item.jenis)
+                                    }"
+                                >
+                                    {{ item.total }}
+                                </span>
+                            </div>
+                            <div v-if="!pelaporTersangkaSummary.top_identity_types?.length" class="text-sm text-slate-500">
+                                Belum ada data identitas tersangka
+                            </div>
                         </div>
                     </div>
                 </div>

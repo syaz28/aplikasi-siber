@@ -43,10 +43,16 @@ export function useFormStorage() {
     // DRAFT AUTO-SAVE
     // ========================================
     
-    const saveDraft = (formData) => {
+    /**
+     * Save draft with form data and optional extra state
+     * @param {object} formData - Main form data
+     * @param {object} extraState - Optional extra state (e.g., textExtractState)
+     */
+    const saveDraft = (formData, extraState = null) => {
         try {
             const draft = {
                 data: formData,
+                extraState: extraState,
                 savedAt: new Date().toISOString()
             };
             localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
@@ -95,10 +101,17 @@ export function useFormStorage() {
     
     let autoSaveInterval = null;
 
-    const startAutoSave = (formData, intervalMs = 30000) => {
+    /**
+     * Start auto-save with optional extra state
+     * @param {object} formData - Main form data
+     * @param {number} intervalMs - Interval in milliseconds
+     * @param {function} getExtraState - Optional function to get extra state
+     */
+    const startAutoSave = (formData, intervalMs = 30000, getExtraState = null) => {
         stopAutoSave();
         autoSaveInterval = setInterval(() => {
-            saveDraft(formData);
+            const extraState = getExtraState ? getExtraState() : null;
+            saveDraft(formData, extraState);
         }, intervalMs);
     };
 

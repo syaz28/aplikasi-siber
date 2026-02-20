@@ -14,6 +14,8 @@ const props = defineProps({
     chartPendidikan: Object,
     chartUsia: Object,
     chartKategori: Object,
+    tersangkaStats: Object,
+    pelaporKorbanComparison: Object,
     filterOptions: Object,
     appliedFilters: Object,
 });
@@ -52,7 +54,7 @@ const formatNumber = (num) => {
 };
 
 const getGenderLabel = (code) => {
-    return code === 'Laki-laki' ? 'Laki-laki' : 'Perempuan';
+    return code === 'LAKI-LAKI' ? 'LAKI-LAKI' : 'PEREMPUAN';
 };
 
 const getAgeGroupLabel = (code) => {
@@ -457,6 +459,185 @@ const pendidikanChartOptions = computed(() => ({
 const pendidikanChartSeries = computed(() => [{
     name: 'Laporan',
     data: props.chartPendidikan?.data || []
+}]);
+
+// =============================================
+// TERSANGKA CHARTS
+// =============================================
+
+// Donut Chart for Tersangka Identification Status
+const tersangkaStatusChartOptions = computed(() => ({
+    chart: {
+        type: 'donut',
+        height: 200,
+        fontFamily: 'Inter, sans-serif',
+    },
+    colors: ['#10B981', '#F59E0B'],
+    labels: ['Teridentifikasi', 'Belum Teridentifikasi'],
+    legend: {
+        position: 'bottom',
+        fontSize: '11px',
+        markers: { width: 8, height: 8, radius: 2 },
+    },
+    dataLabels: {
+        enabled: true,
+        style: { fontSize: '11px', fontWeight: 600 },
+        formatter: (val) => `${val.toFixed(0)}%`,
+    },
+    plotOptions: {
+        pie: {
+            donut: {
+                size: '65%',
+                labels: {
+                    show: true,
+                    name: { fontSize: '12px' },
+                    value: { fontSize: '18px', fontWeight: 700 },
+                    total: {
+                        show: true,
+                        label: 'Total',
+                        fontSize: '11px',
+                        formatter: () => props.tersangkaStats?.total || 0,
+                    }
+                }
+            }
+        }
+    },
+}));
+
+const tersangkaStatusChartSeries = computed(() => [
+    props.tersangkaStats?.identified || 0,
+    props.tersangkaStats?.unidentified || 0,
+]);
+
+// Horizontal Bar Chart for Identity Types
+const identityTypeChartOptions = computed(() => ({
+    chart: {
+        type: 'bar',
+        height: 200,
+        toolbar: { show: false },
+        fontFamily: 'Inter, sans-serif',
+    },
+    colors: ['#8B5CF6'],
+    plotOptions: {
+        bar: {
+            horizontal: true,
+            borderRadius: 4,
+            barHeight: '60%',
+        }
+    },
+    dataLabels: {
+        enabled: true,
+        style: { fontSize: '10px', fontWeight: 600, colors: ['#fff'] },
+        offsetX: -6,
+    },
+    xaxis: {
+        categories: props.tersangkaStats?.identity_by_type?.labels || [],
+        labels: { style: { fontSize: '10px' } },
+    },
+    yaxis: {
+        labels: { style: { fontSize: '10px' }, maxWidth: 100 },
+    },
+    grid: {
+        borderColor: '#E5E7EB',
+        strokeDashArray: 4,
+    },
+    tooltip: {
+        y: { formatter: (val) => `${val} Identitas` }
+    },
+}));
+
+const identityTypeChartSeries = computed(() => [{
+    name: 'Identitas',
+    data: props.tersangkaStats?.identity_by_type?.data || []
+}]);
+
+// Grouped Bar Chart for Gender Comparison (Pelapor vs Korban vs Tersangka)
+const genderComparisonChartOptions = computed(() => ({
+    chart: {
+        type: 'bar',
+        height: 280,
+        toolbar: { show: false },
+        fontFamily: 'Inter, sans-serif',
+    },
+    colors: ['#3B82F6', '#EF4444', '#8B5CF6'],
+    plotOptions: {
+        bar: {
+            horizontal: false,
+            columnWidth: '60%',
+            borderRadius: 4,
+        }
+    },
+    dataLabels: {
+        enabled: true,
+        style: { fontSize: '10px', fontWeight: 600, colors: ['#fff'] },
+    },
+    xaxis: {
+        categories: props.pelaporKorbanComparison?.gender_comparison?.labels || [],
+        labels: { style: { fontSize: '11px' } },
+    },
+    yaxis: {
+        labels: { style: { fontSize: '11px' } },
+    },
+    legend: {
+        position: 'top',
+        horizontalAlign: 'center',
+        fontSize: '11px',
+    },
+    grid: {
+        borderColor: '#E5E7EB',
+        strokeDashArray: 4,
+    },
+    tooltip: {
+        y: { formatter: (val) => `${val} Orang` }
+    },
+}));
+
+const genderComparisonChartSeries = computed(() => [
+    { name: 'Pelapor', data: props.pelaporKorbanComparison?.gender_comparison?.pelapor || [] },
+    { name: 'Korban', data: props.pelaporKorbanComparison?.gender_comparison?.korban || [] },
+    { name: 'Tersangka', data: props.pelaporKorbanComparison?.gender_comparison?.tersangka || [] },
+]);
+
+// Horizontal Bar Chart for Top Pekerjaan Pelapor
+const pekerjaanChartOptions = computed(() => ({
+    chart: {
+        type: 'bar',
+        height: 200,
+        toolbar: { show: false },
+        fontFamily: 'Inter, sans-serif',
+    },
+    colors: ['#06B6D4'],
+    plotOptions: {
+        bar: {
+            horizontal: true,
+            borderRadius: 4,
+            barHeight: '60%',
+        }
+    },
+    dataLabels: {
+        enabled: true,
+        style: { fontSize: '10px', fontWeight: 600, colors: ['#fff'] },
+        offsetX: -6,
+    },
+    xaxis: {
+        categories: props.pelaporKorbanComparison?.top_pekerjaan_pelapor?.labels || [],
+        labels: { style: { fontSize: '10px' } },
+    },
+    yaxis: {
+        labels: { style: { fontSize: '10px' }, maxWidth: 120 },
+    },
+    grid: {
+        borderColor: '#E5E7EB',
+        strokeDashArray: 4,
+    },
+    tooltip: {
+        y: { formatter: (val) => `${val} Pelapor` }
+    },
+}));
+
+const pekerjaanChartSeries = computed(() => [{
+    name: 'Pelapor',
+    data: props.pelaporKorbanComparison?.top_pekerjaan_pelapor?.data || []
 }]);
 </script>
 
@@ -869,6 +1050,169 @@ const pendidikanChartSeries = computed(() => [{
                                 height="280"
                                 :options="pendidikanChartOptions"
                                 :series="pendidikanChartSeries"
+                            />
+                        </div>
+                    </div>
+
+                    <!-- =============================================
+                         SECTION: PELAPOR, KORBAN & TERSANGKA
+                         ============================================= -->
+                    <div class="mt-8">
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="p-2 bg-red-100 rounded-lg">
+                                <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h2 class="text-lg font-bold text-gray-900">Analisis Pelapor, Korban & Tersangka</h2>
+                                <p class="text-sm text-gray-500">Perbandingan demografi dan statistik pelaku kejahatan siber</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Pelapor & Korban Summary Cards -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-4 text-white shadow-lg">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-blue-100 text-xs font-medium">Total Pelapor</p>
+                                    <p class="text-2xl font-bold mt-1">{{ formatNumber(pelaporKorbanComparison?.total_pelapor) }}</p>
+                                </div>
+                                <div class="p-2 bg-white/20 rounded-lg">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-gradient-to-br from-red-500 to-red-600 rounded-xl p-4 text-white shadow-lg">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-red-100 text-xs font-medium">Total Korban</p>
+                                    <p class="text-2xl font-bold mt-1">{{ formatNumber(pelaporKorbanComparison?.total_korban) }}</p>
+                                </div>
+                                <div class="p-2 bg-white/20 rounded-lg">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-4 text-white shadow-lg">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-purple-100 text-xs font-medium">Total Tersangka</p>
+                                    <p class="text-2xl font-bold mt-1">{{ formatNumber(tersangkaStats?.total) }}</p>
+                                </div>
+                                <div class="p-2 bg-white/20 rounded-lg">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-4 text-white shadow-lg">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-orange-100 text-xs font-medium">Tersangka Terhubung</p>
+                                    <p class="text-2xl font-bold mt-1">{{ formatNumber(tersangkaStats?.total_linked) }}</p>
+                                    <p class="text-orange-200 text-xs mt-0.5">{{ tersangkaStats?.total_linked_groups }} grup identitas sama</p>
+                                </div>
+                                <div class="p-2 bg-white/20 rounded-lg">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Gender Comparison Chart (Pelapor vs Korban vs Tersangka) -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+                            <div class="flex items-center justify-between mb-4">
+                                <div>
+                                    <h3 class="text-base font-semibold text-gray-900">Perbandingan Gender</h3>
+                                    <p class="text-xs text-gray-500">Pelapor vs Korban vs Tersangka</p>
+                                </div>
+                                <div class="p-2 bg-purple-50 rounded-lg">
+                                    <svg class="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                    </svg>
+                                </div>
+                            </div>
+                            <VueApexCharts
+                                type="bar"
+                                height="280"
+                                :options="genderComparisonChartOptions"
+                                :series="genderComparisonChartSeries"
+                            />
+                        </div>
+
+                        <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+                            <div class="flex items-center justify-between mb-4">
+                                <div>
+                                    <h3 class="text-base font-semibold text-gray-900">Top 5 Pekerjaan Pelapor</h3>
+                                    <p class="text-xs text-gray-500">Profesi yang paling sering menjadi pelapor</p>
+                                </div>
+                                <div class="p-2 bg-cyan-50 rounded-lg">
+                                    <svg class="w-4 h-4 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                    </svg>
+                                </div>
+                            </div>
+                            <VueApexCharts
+                                type="bar"
+                                height="280"
+                                :options="pekerjaanChartOptions"
+                                :series="pekerjaanChartSeries"
+                            />
+                        </div>
+                    </div>
+
+                    <!-- Tersangka Analysis -->
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <!-- Tersangka Identification Status -->
+                        <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+                            <div class="flex items-center justify-between mb-4">
+                                <div>
+                                    <h3 class="text-base font-semibold text-gray-900">Status Identifikasi</h3>
+                                    <p class="text-xs text-gray-500">Tersangka teridentifikasi vs belum</p>
+                                </div>
+                                <div class="px-2.5 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold">
+                                    {{ tersangkaStats?.identification_rate || 0 }}% Teridentifikasi
+                                </div>
+                            </div>
+                            <VueApexCharts
+                                type="donut"
+                                height="220"
+                                :options="tersangkaStatusChartOptions"
+                                :series="tersangkaStatusChartSeries"
+                            />
+                        </div>
+
+                        <!-- Tersangka Identity Types -->
+                        <div class="lg:col-span-2 bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+                            <div class="flex items-center justify-between mb-4">
+                                <div>
+                                    <h3 class="text-base font-semibold text-gray-900">Jenis Identitas Digital Tersangka</h3>
+                                    <p class="text-xs text-gray-500">Rekening, telepon, akun sosmed, dan lainnya</p>
+                                </div>
+                                <div class="p-2 bg-purple-50 rounded-lg">
+                                    <svg class="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                                    </svg>
+                                </div>
+                            </div>
+                            <VueApexCharts
+                                type="bar"
+                                height="220"
+                                :options="identityTypeChartOptions"
+                                :series="identityTypeChartSeries"
                             />
                         </div>
                     </div>

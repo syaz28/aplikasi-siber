@@ -200,7 +200,7 @@ class StpaPdfService
         $jam = $tanggal->format('H.i'); // Pakai titik, bukan colon
         
         // Jenis kelamin
-        $jenisKelamin = ($pelapor?->jenis_kelamin === 'Laki-laki') ? 'seorang Laki-laki' : 'seorang Perempuan';
+        $jenisKelamin = ($pelapor?->jenis_kelamin === 'LAKI-LAKI') ? 'seorang Laki-laki' : 'seorang Perempuan';
         
         // Build opening text
         $openingText = "Pada hari ini {$hari} tanggal {$tanggalNum} {$bulan} {$tahun}, sekitar pukul {$jam} WIB, telah datang {$jenisKelamin} di Kantor Direktorat Reserse Siber Polda Jawa Tengah, dengan identitas sebagai berikut :";
@@ -709,8 +709,8 @@ class StpaPdfService
         
         $korbanList = $laporan->korban->map(function($korban) {
             $nama = $korban->orang?->nama ?? 'Tidak diketahui';
-            $jenisKelamin = $korban->orang?->jenis_kelamin ?? 'Laki-laki';
-            $prefix = $jenisKelamin === 'Perempuan' ? 'Sdri.' : 'Sdr.';
+            $jenisKelamin = $korban->orang?->jenis_kelamin ?? 'LAKI-LAKI';
+            $prefix = $jenisKelamin === 'PEREMPUAN' ? 'Sdri.' : 'Sdr.';
             return "{$prefix} {$nama}";
         })->implode(', ');
         

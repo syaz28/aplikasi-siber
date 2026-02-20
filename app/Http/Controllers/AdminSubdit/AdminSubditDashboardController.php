@@ -4,9 +4,13 @@ namespace App\Http\Controllers\AdminSubdit;
 
 use App\Http\Controllers\Controller;
 use App\Models\Laporan;
+use App\Models\Tersangka;
+use App\Models\Korban;
+use App\Models\IdentitasTersangka;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
 class AdminSubditDashboardController extends Controller
@@ -82,6 +86,9 @@ class AdminSubditDashboardController extends Controller
             ['value' => 5, 'label' => 'Unit 5'],
         ];
 
+        // === PELAPOR & TERSANGKA SUMMARY (Subdit Scope) ===
+        $pelaporTersangkaStats = $this->getPelaporTersangkaStats($subdit);
+
         return Inertia::render('AdminSubdit/Dashboard', [
             'stats' => [
                 'pending_disposisi' => $pendingDisposisi,
@@ -95,7 +102,77 @@ class AdminSubditDashboardController extends Controller
             ],
             'unitOptions' => $unitOptions,
             'subdit' => $subdit,
+            'pelaporTersangkaStats' => $pelaporTersangkaStats,
         ]);
+    }
+
+    /**
+     * Get pelapor and tersangka statistics for the subdit
+     */
+    private function getPelaporTersangkaStats($subdit): array
+    {
+        // Get laporan IDs for this subdit
+        $laporanIds = Laporan::where('assigned_subdit', $subdit)->pluck('id');
+
+        // Total pelapor unik (by pelapor_id)
+        $totalPelapor = Laporan::where('assigned_subdit', $subdit)
+            ->whereNotNull('pelapor_id')
+            ->distinct('pelapor_id')
+            ->count('pelapor_id');
+
+        // Total korban
+        $totalKorban = Korban::whereIn('laporan_id', $laporanIds)->count();
+
+        // Total kerugian
+        $totalKerugian = Korban::whereIn('laporan_id', $laporanIds)->sum('kerugian_nominal');
+
+        // Tersangka stats
+        $totalTersangka = Tersangka::whereIn('laporan_id', $laporanIds)->count();
+        $unidentifiedTersangka = Tersangka::whereIn('laporan_id', $laporanIds)
+            ->whereNull('orang_id')
+            ->count();
+
+        // Linked tersangka in this subdit's cases
+        $tersangkaIdsInSubdit = Tersangka::whereIn('laporan_id', $laporanIds)->pluck('id');
+        
+        $linkedIdentities = IdentitasTersangka::select('jenis', 'nilai', DB::raw('COUNT(*) as count'))
+            ->whereIn('tersangka_id', $tersangkaIdsInSubdit)
+            ->groupBy('jenis', 'nilai')
+            ->having('count', '>', 1)
+            ->get();
+
+        $linkedTersangkaIds = collect();
+        foreach ($linkedIdentities as $dup) {
+            $ids = IdentitasTersangka::where('jenis', $dup->jenis)
+                ->where('nilai', $dup->nilai)
+                ->whereIn('tersangka_id', $tersangkaIdsInSubdit)
+                ->pluck('tersangka_id');
+            $linkedTersangkaIds = $linkedTersangkaIds->merge($ids);
+        }
+        $linkedCount = $linkedTersangkaIds->unique()->count();
+
+        // Top 3 identity types
+        $identityTypes = IdentitasTersangka::select('jenis', DB::raw('COUNT(*) as count'))
+            ->whereIn('tersangka_id', $tersangkaIdsInSubdit)
+            ->groupBy('jenis')
+            ->orderByDesc('count')
+            ->limit(3)
+            ->get()
+            ->map(fn($i) => [
+                'jenis' => $i->jenis,
+                'count' => $i->count,
+            ]);
+
+        return [
+            'total_pelapor' => $totalPelapor,
+            'total_korban' => $totalKorban,
+            'total_kerugian' => $totalKerugian,
+            'total_tersangka' => $totalTersangka,
+            'unidentified_tersangka' => $unidentifiedTersangka,
+            'linked_tersangka' => $linkedCount,
+            'linked_groups' => $linkedIdentities->count(),
+            'identity_types' => $identityTypes->toArray(),
+        ];
     }
 
     /**

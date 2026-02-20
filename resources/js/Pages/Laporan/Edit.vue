@@ -42,7 +42,7 @@ const form = reactive({
 const anggotaOptions = computed(() => {
     return masterData.anggota.map(a => ({
         ...a,
-        displayName: `${a.pangkat || ''} ${a.name} (${a.nrp || ''})`.trim()
+        displayName: `${a.pangkat || ''} ${a.nama || ''} (${a.nrp || ''})`.trim()
     }));
 });
 
