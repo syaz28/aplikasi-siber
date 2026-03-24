@@ -1181,6 +1181,14 @@ const submitForm = async () => {
             // Show toast with first error
             const firstError = errorList[0];
             toast.error(`Validasi gagal! ${firstError}`);
+        } else if (err.response?.status === 419) {
+            // CSRF token mismatch — the auto-retry in bootstrap.js failed 
+            // (probably session fully expired). Reload page to get fresh session.
+            apiError.value = 'Sesi Anda telah berakhir. Halaman akan dimuat ulang otomatis...';
+            toast.error('Sesi habis — memuat ulang halaman...');
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
         } else if (err.response?.data?.message) {
             apiError.value = err.response.data.message;
             toast.error(err.response.data.message);

@@ -39,12 +39,20 @@ class StpaNumberGenerator
      */
     private static function getNextSequence(int $year, int $month): int
     {
-        // Count existing reports in current month
-        $count = Laporan::whereYear('tanggal_laporan', $year)
-            ->whereMonth('tanggal_laporan', $month)
-            ->count();
-        
-        return $count + 1;
+        // Nomor urut STPA reset per TAHUN (bukan per bulan)
+        // Cari nomor urut tertinggi dari semua nomor_stpa di tahun ini
+        $maxSequence = Laporan::where('nomor_stpa', 'like', "STPA/%/%/{$year}/Ditressiber")
+            ->get()
+            ->map(function ($laporan) {
+                // Extract sequence number dari STPA/XXX/...
+                if (preg_match('/^STPA\/(\d+)\//', $laporan->nomor_stpa, $matches)) {
+                    return (int) $matches[1];
+                }
+                return 0;
+            })
+            ->max() ?? 0;
+
+        return $maxSequence + 1;
     }
     
     /**

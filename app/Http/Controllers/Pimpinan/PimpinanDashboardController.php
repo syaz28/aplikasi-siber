@@ -3,484 +3,763 @@
 namespace App\Http\Controllers\Pimpinan;
 
 use App\Http\Controllers\Controller;
+use App\Models\IdentitasTersangka;
+use App\Models\KategoriKejahatan;
 use App\Models\Korban;
 use App\Models\Laporan;
-use App\Models\Tersangka;
-use App\Models\IdentitasTersangka;
-use App\Models\Orang;
-use App\Models\KategoriKejahatan;
+use App\Models\MasterPekerjaan;
 use App\Models\MasterPendidikan;
+use App\Models\Tersangka;
+use App\Models\Wilayah;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
 
 /**
- * PimpinanDashboardController
- * 
- * Executive Dashboard: Profiling & Demographics
- * - KPI Stats (Total Laporan, Total Kerugian, Penyelesaian %)
- * - Crime Category Chart (Horizontal Bar - ALL categories)
- * - Demographics (Gender, Age Groups, Education)
- * - Advanced Filtering (Date Range, Multi-select filters)
+ * PimpinanDashboardController — Tableau-style Cross-Filtering
+ *
+ * All datasets are filtered by a shared $filters bag:
+ *   kategori_id, bulan, gender, pendidikan, usia_group, tahun
+ *
+ * Datasets:
+ *   1. KEY_STATS          — KPIs (total laporan, kerugian, clearance, suspect ID)
+ *   2. MONTHLY_COMBO      — 12-month bar+line (highlighted month when bulan filter)
+ *   3. CATEGORIES_BAR     — All categories with total_reports & total_losses
+ *   4. VICTIM_PROFILING   — Gender / Education / Occupation (stacked cross-filters)
+ *   5. PLATFORM_SUNBURST  — IdentitasTersangka jenis → platform
+ *   6. RECENT_REPORTS     — Latest 10 for Live Threat Ticker
  */
 class PimpinanDashboardController extends Controller
 {
     /**
-     * Age group definitions (Police Standard Categories)
-     * Calculated dynamically from tanggal_lahir vs tanggal_laporan
+     * Age-group boundaries used for the usia_group filter.
+     * Labels must match what the frontend sends.
      */
     private const AGE_GROUPS = [
-        '< 17' => ['min' => 0, 'max' => 16, 'label' => '< 17 Th (Anak-anak)'],
-        '17-25' => ['min' => 17, 'max' => 25, 'label' => '17-25 Th (Remaja)'],
-        '26-45' => ['min' => 26, 'max' => 45, 'label' => '26-45 Th (Dewasa)'],
-        '46-60' => ['min' => 46, 'max' => 60, 'label' => '46-60 Th (Orang Tua)'],
-        '> 60' => ['min' => 61, 'max' => 200, 'label' => '> 60 Th (Lansia)'],
+        '< 15 Tahun'   => [0, 14],
+        '15-30 Tahun'  => [15, 30],
+        '31-45 Tahun'  => [31, 45],
+        '46-60 Tahun'  => [46, 60],
+        '> 60 Tahun'   => [61, 200],
     ];
 
     /**
-     * Executive Dashboard - Main View
+     * Labels to exclude from victim profiling (unknown / placeholder data).
      */
+    private const EXCLUDED_LABELS = [
+        'TIDAK DIKETAHUI',
+        'Tidak Diketahui',
+        'tidak diketahui',
+    ];
+
+    // =========================================================================
+    // INDEX
+    // =========================================================================
+
     public function index(Request $request): InertiaResponse
     {
-        // =============================================
-        // PARSE FILTERS FROM REQUEST
-        // =============================================
-        $dateRange = $request->input('date_range', []);
-        $filters = $request->input('filters', []);
-        $kategoriFokus = $request->input('kategori_fokus');
-
-        $startDate = !empty($dateRange['start']) ? Carbon::parse($dateRange['start'])->startOfDay() : null;
-        $endDate = !empty($dateRange['end']) ? Carbon::parse($dateRange['end'])->endOfDay() : null;
-
-        $filterPendidikan = $filters['pendidikan'] ?? [];
-        $filterGender = $filters['gender'] ?? [];
-        $filterAgeGroup = $filters['age_group'] ?? [];
-
-        // =============================================
-        // BUILD BASE QUERY WITH FILTERS
-        // =============================================
-        $baseQuery = Laporan::query()
-            ->join('orang', 'laporan.pelapor_id', '=', 'orang.id');
-
-        // Apply date range filter
-        if ($startDate && $endDate) {
-            $baseQuery->whereBetween('laporan.tanggal_laporan', [$startDate, $endDate]);
-        }
-
-        // Apply pendidikan filter
-        if (!empty($filterPendidikan)) {
-            $baseQuery->whereIn('orang.pendidikan', $filterPendidikan);
-        }
-
-        // Apply gender filter
-        if (!empty($filterGender)) {
-            $baseQuery->whereIn('orang.jenis_kelamin', $filterGender);
-        }
-
-        // Apply age group filter using TIMESTAMPDIFF (based on tanggal_laporan)
-        if (!empty($filterAgeGroup)) {
-            $baseQuery->where(function ($query) use ($filterAgeGroup) {
-                foreach ($filterAgeGroup as $group) {
-                    if (isset(self::AGE_GROUPS[$group])) {
-                        $min = self::AGE_GROUPS[$group]['min'];
-                        $max = self::AGE_GROUPS[$group]['max'];
-                        $query->orWhereRaw(
-                            'TIMESTAMPDIFF(YEAR, orang.tanggal_lahir, laporan.tanggal_laporan) BETWEEN ? AND ?',
-                            [$min, $max]
-                        );
-                    }
-                }
-            });
-        }
-
-        // Apply kategori fokus filter
-        if (!empty($kategoriFokus)) {
-            $baseQuery->where('laporan.kategori_kejahatan_id', $kategoriFokus);
-        }
-
-        // =============================================
-        // A. KPI STATS
-        // =============================================
-        $statsQuery = clone $baseQuery;
-        $totalLaporan = $statsQuery->count('laporan.id');
-
-        // Total Kerugian - need to join korban
-        $kerugianQuery = Laporan::query()
-            ->join('orang', 'laporan.pelapor_id', '=', 'orang.id')
-            ->join('korban', 'korban.laporan_id', '=', 'laporan.id');
-
-        // Reapply filters for kerugian query
-        if ($startDate && $endDate) {
-            $kerugianQuery->whereBetween('laporan.tanggal_laporan', [$startDate, $endDate]);
-        }
-        if (!empty($filterPendidikan)) {
-            $kerugianQuery->whereIn('orang.pendidikan', $filterPendidikan);
-        }
-        if (!empty($filterGender)) {
-            $kerugianQuery->whereIn('orang.jenis_kelamin', $filterGender);
-        }
-        if (!empty($filterAgeGroup)) {
-            $kerugianQuery->where(function ($query) use ($filterAgeGroup) {
-                foreach ($filterAgeGroup as $group) {
-                    if (isset(self::AGE_GROUPS[$group])) {
-                        $min = self::AGE_GROUPS[$group]['min'];
-                        $max = self::AGE_GROUPS[$group]['max'];
-                        $query->orWhereRaw(
-                            'TIMESTAMPDIFF(YEAR, orang.tanggal_lahir, laporan.tanggal_laporan) BETWEEN ? AND ?',
-                            [$min, $max]
-                        );
-                    }
-                }
-            });
-        }
-        if (!empty($kategoriFokus)) {
-            $kerugianQuery->where('laporan.kategori_kejahatan_id', $kategoriFokus);
-        }
-
-        $totalKerugian = $kerugianQuery->sum('korban.kerugian_nominal');
-
-        // Total Selesai (SP3, RJ, Diversi)
-        $selesaiQuery = clone $baseQuery;
-        $totalSelesai = $selesaiQuery->whereIn('laporan.status', ['SP3', 'RJ', 'Diversi'])->count('laporan.id');
-
-        // Persentase penyelesaian
-        $persentaseSelesai = $totalLaporan > 0 ? round(($totalSelesai / $totalLaporan) * 100, 1) : 0;
-
-        $stats = [
-            'total_laporan' => $totalLaporan,
-            'total_kerugian' => $totalKerugian,
-            'total_selesai' => $totalSelesai,
-            'persentase_selesai' => $persentaseSelesai,
+        // ── Collect filters ────────────────────────────────────────
+        $filters = [
+            'kategori_id'   => $request->input('kategori_id') ? (int) $request->input('kategori_id') : null,
+            'bulan'         => $request->input('bulan') ? (int) $request->input('bulan') : null,
+            'gender'        => $request->input('gender') ?: null,
+            'pendidikan'    => $request->input('pendidikan') ?: null,
+            'usia_group'    => $request->input('usia_group') ?: null,
+            'tahun'         => $request->input('tahun') ? (int) $request->input('tahun') : null,
+            'wilayah_kode'  => $request->input('wilayah_kode') ?: null,
+            'platform_name' => $request->input('platform_name') ?: null,
         ];
 
-        // =============================================
-        // B. CHART: GENDER DISTRIBUTION
-        // =============================================
-        $genderQuery = Laporan::query()
-            ->join('orang', 'laporan.pelapor_id', '=', 'orang.id')
-            ->select('orang.jenis_kelamin', DB::raw('COUNT(laporan.id) as total'))
-            ->groupBy('orang.jenis_kelamin');
-
-        // Apply all filters
-        $this->applyFiltersToQuery($genderQuery, $startDate, $endDate, $filterPendidikan, $filterGender, $filterAgeGroup, $kategoriFokus);
-
-        $genderData = $genderQuery->get();
-
-        $chartGender = [
-            'labels' => $genderData->pluck('jenis_kelamin')->map(fn($g) => $g === 'LAKI-LAKI' ? 'LAKI-LAKI' : 'PEREMPUAN')->toArray(),
-            'data' => $genderData->pluck('total')->toArray(),
-        ];
-
-        // =============================================
-        // C. CHART: EDUCATION DISTRIBUTION
-        // =============================================
-        $pendidikanQuery = Laporan::query()
-            ->join('orang', 'laporan.pelapor_id', '=', 'orang.id')
-            ->select('orang.pendidikan', DB::raw('COUNT(laporan.id) as total'))
-            ->whereNotNull('orang.pendidikan')
-            ->groupBy('orang.pendidikan')
-            ->orderByDesc('total');
-
-        $this->applyFiltersToQuery($pendidikanQuery, $startDate, $endDate, $filterPendidikan, $filterGender, $filterAgeGroup, $kategoriFokus);
-
-        $pendidikanData = $pendidikanQuery->get();
-
-        $chartPendidikan = [
-            'labels' => $pendidikanData->pluck('pendidikan')->toArray(),
-            'data' => $pendidikanData->pluck('total')->toArray(),
-        ];
-
-        // =============================================
-        // D. CHART: AGE GROUP DISTRIBUTION (based on tanggal_laporan)
-        // =============================================
-        $usiaData = [];
-        foreach (self::AGE_GROUPS as $key => $range) {
-            $usiaQuery = Laporan::query()
-                ->join('orang', 'laporan.pelapor_id', '=', 'orang.id')
-                ->whereRaw(
-                    'TIMESTAMPDIFF(YEAR, orang.tanggal_lahir, laporan.tanggal_laporan) BETWEEN ? AND ?',
-                    [$range['min'], $range['max']]
-                );
-
-            $this->applyFiltersToQuery($usiaQuery, $startDate, $endDate, $filterPendidikan, $filterGender, $filterAgeGroup, $kategoriFokus);
-
-            $usiaData[] = [
-                'group' => $key,
-                'label' => $range['label'],
-                'total' => $usiaQuery->count('laporan.id'),
-            ];
-        }
-
-        $chartUsia = [
-            'labels' => collect($usiaData)->pluck('label')->toArray(),
-            'data' => collect($usiaData)->pluck('total')->toArray(),
-        ];
-
-        // =============================================
-        // E. CHART: KATEGORI KEJAHATAN (ALL - Horizontal Bar)
-        // =============================================
-        $kategoriQuery = Laporan::query()
-            ->join('orang', 'laporan.pelapor_id', '=', 'orang.id')
-            ->join('kategori_kejahatan', 'laporan.kategori_kejahatan_id', '=', 'kategori_kejahatan.id')
-            ->select('kategori_kejahatan.nama', DB::raw('COUNT(laporan.id) as total'))
-            ->groupBy('kategori_kejahatan.id', 'kategori_kejahatan.nama')
-            ->orderByDesc('total');
-
-        $this->applyFiltersToQuery($kategoriQuery, $startDate, $endDate, $filterPendidikan, $filterGender, $filterAgeGroup, $kategoriFokus);
-
-        $kategoriData = $kategoriQuery->get();
-
-        $chartKategori = [
-            'labels' => $kategoriData->pluck('nama')->toArray(),
-            'data' => $kategoriData->pluck('total')->toArray(),
-        ];
-
-        // =============================================
-        // F. TERSANGKA STATISTICS
-        // =============================================
-        $tersangkaStats = $this->getTersangkaStatistics($startDate, $endDate, $kategoriFokus);
-
-        // =============================================
-        // G. PELAPOR vs KORBAN COMPARISON
-        // =============================================
-        $pelaporKorbanComparison = $this->getPelaporKorbanComparison($startDate, $endDate);
-
-        // =============================================
-        // H. FILTER OPTIONS (for dropdown/checkboxes)
-        // =============================================
-        $filterOptions = [
-            'pendidikan' => MasterPendidikan::orderBy('nama')->pluck('nama')->toArray(),
-            'gender' => ['LAKI-LAKI', 'PEREMPUAN'],
-            'age_group' => array_keys(self::AGE_GROUPS),
-            'kategori' => KategoriKejahatan::active()->orderBy('nama')->get(['id', 'nama'])->toArray(),
-        ];
-
-        // =============================================
-        // RETURN INERTIA RESPONSE
-        // =============================================
         return Inertia::render('Pimpinan/Dashboard', [
-            'stats' => $stats,
-            'chartGender' => $chartGender,
-            'chartPendidikan' => $chartPendidikan,
-            'chartUsia' => $chartUsia,
-            'chartKategori' => $chartKategori,
-            'tersangkaStats' => $tersangkaStats,
-            'pelaporKorbanComparison' => $pelaporKorbanComparison,
-            'filterOptions' => $filterOptions,
-            'appliedFilters' => [
-                'date_range' => $dateRange,
-                'filters' => $filters,
-                'kategori_fokus' => $kategoriFokus,
-            ],
+            'keyStats'          => $this->getKeyStats($filters),
+            'monthlyCombo'      => $this->getMonthlyCombo($filters),
+            'categoriesBar'     => $this->getCategoriesBar($filters),
+            'victimProfiling'   => $this->getVictimProfiling($filters),
+            'platformSunburst'  => $this->getPlatformSunburst($filters),
+            'recentReports'     => $this->getRecentReports(),
+            'filterOptions'     => $this->getFilterOptions(),
+            'appliedFilters'    => $filters,
         ]);
     }
 
+    // =========================================================================
+    // GLOBAL FILTER HELPER
+    // =========================================================================
+
     /**
-     * Get tersangka statistics for executive dashboard
+     * Apply cross-filters to any query.
+     *
+     * The method inspects the query's base table and intelligently joins
+     * whatever is needed:
+     *   - 'laporan'  context → joins korban→orang when demographic filters present
+     *   - 'korban'   context → joins laporan (for kategori/bulan) and orang (demographics)
+     *   - 'tersangka'/'identitas_tersangka' context → joins laporan
+     *
+     * @param  Builder|\Illuminate\Database\Query\Builder  $query
+     * @param  array   $filters  The shared filter bag
+     * @param  string  $context  'laporan' | 'korban' | 'tersangka' | 'identitas_tersangka'
+     * @return Builder|\Illuminate\Database\Query\Builder
      */
-    private function getTersangkaStatistics($startDate, $endDate, $kategoriFokus): array
+    private function applyGlobalFilters($query, array $filters, string $context)
     {
-        // Base query for tersangka
-        $baseQuery = Tersangka::query()
-            ->join('laporan', 'tersangka.laporan_id', '=', 'laporan.id');
+        $hasKategori    = !empty($filters['kategori_id']);
+        $hasBulan       = !empty($filters['bulan']);
+        $hasGender      = !empty($filters['gender']);
+        $hasPendidikan  = !empty($filters['pendidikan']);
+        $hasUsia        = !empty($filters['usia_group']);
+        $hasTahun       = !empty($filters['tahun']);
+        $hasWilayah     = !empty($filters['wilayah_kode']);
+        $hasPlatform    = !empty($filters['platform_name']);
+        $hasDemographic = $hasGender || $hasPendidikan || $hasUsia;
 
-        if ($startDate && $endDate) {
-            $baseQuery->whereBetween('laporan.tanggal_laporan', [$startDate, $endDate]);
+        // ── Context: laporan ───────────────────────────────────────
+        if ($context === 'laporan') {
+            if ($hasKategori) {
+                $query->where('laporan.kategori_kejahatan_id', $filters['kategori_id']);
+            }
+            if ($hasBulan) {
+                $query->whereRaw('MONTH(laporan.tanggal_laporan) = ?', [$filters['bulan']]);
+            }
+            if ($hasTahun) {
+                $query->whereRaw('YEAR(laporan.tanggal_laporan) = ?', [$filters['tahun']]);
+            }
+            if ($hasWilayah) {
+                $query->where('laporan.kode_kabupaten_kejadian', $filters['wilayah_kode']);
+            }
+            if ($hasPlatform) {
+                $query->whereExists(function ($sub) use ($filters) {
+                    $sub->select(DB::raw(1))
+                        ->from('tersangka')
+                        ->join('identitas_tersangka', 'identitas_tersangka.tersangka_id', '=', 'tersangka.id')
+                        ->whereColumn('tersangka.laporan_id', 'laporan.id')
+                        ->where('identitas_tersangka.platform', $filters['platform_name']);
+                });
+            }
+            // Demographic filters require korban→orang
+            if ($hasDemographic) {
+                $query->whereExists(function ($sub) use ($filters, $hasGender, $hasPendidikan, $hasUsia) {
+                    $sub->select(DB::raw(1))
+                        ->from('korban')
+                        ->join('orang', 'korban.orang_id', '=', 'orang.id')
+                        ->whereColumn('korban.laporan_id', 'laporan.id');
+
+                    if ($hasGender) {
+                        $sub->where('orang.jenis_kelamin', $filters['gender']);
+                    }
+                    if ($hasPendidikan) {
+                        $sub->where('orang.pendidikan', $filters['pendidikan']);
+                    }
+                    if ($hasUsia) {
+                        // laporan is the outer table — join it into subquery for age calc
+                        $sub->join('laporan as lap_age', 'korban.laporan_id', '=', 'lap_age.id');
+                        $sub->whereRaw(
+                            'TIMESTAMPDIFF(YEAR, orang.tanggal_lahir, lap_age.tanggal_laporan) BETWEEN ? AND ?',
+                            self::AGE_GROUPS[$filters['usia_group']] ?? [0, 200]
+                        );
+                    }
+                });
+            }
         }
-        if (!empty($kategoriFokus)) {
-            $baseQuery->where('laporan.kategori_kejahatan_id', $kategoriFokus);
+
+        // ── Context: korban ────────────────────────────────────────
+        if ($context === 'korban') {
+            // Always join laporan — needed for historical age calc (tanggal_laporan) and kategori/bulan filters
+            $query->join('laporan', 'korban.laporan_id', '=', 'laporan.id');
+
+            if ($hasKategori) {
+                $query->where('laporan.kategori_kejahatan_id', $filters['kategori_id']);
+            }
+            if ($hasBulan) {
+                $query->whereRaw('MONTH(laporan.tanggal_laporan) = ?', [$filters['bulan']]);
+            }
+            if ($hasTahun) {
+                $query->whereRaw('YEAR(laporan.tanggal_laporan) = ?', [$filters['tahun']]);
+            }
+            if ($hasWilayah) {
+                $query->where('laporan.kode_kabupaten_kejadian', $filters['wilayah_kode']);
+            }
+            if ($hasPlatform) {
+                $query->whereExists(function ($sub) use ($filters) {
+                    $sub->select(DB::raw(1))
+                        ->from('tersangka')
+                        ->join('identitas_tersangka', 'identitas_tersangka.tersangka_id', '=', 'tersangka.id')
+                        ->whereColumn('tersangka.laporan_id', 'laporan.id')
+                        ->where('identitas_tersangka.platform', $filters['platform_name']);
+                });
+            }
+            // orang demographic filters (orang is expected to be joined by caller)
+            if ($hasGender) {
+                $query->where('orang.jenis_kelamin', $filters['gender']);
+            }
+            if ($hasPendidikan) {
+                $query->where('orang.pendidikan', $filters['pendidikan']);
+            }
+            if ($hasUsia) {
+                $this->applyAgeFilter($query, $filters['usia_group']);
+            }
         }
 
-        // Total tersangka
-        $total = (clone $baseQuery)->count();
-        $identified = (clone $baseQuery)->whereNotNull('tersangka.orang_id')->count();
-        $unidentified = (clone $baseQuery)->whereNull('tersangka.orang_id')->count();
+        // ── Context: tersangka ─────────────────────────────────────
+        if ($context === 'tersangka') {
+            $needsLaporan = $hasKategori || $hasBulan || $hasTahun || $hasWilayah || $hasDemographic;
+            if ($needsLaporan) {
+                $query->join('laporan', 'tersangka.laporan_id', '=', 'laporan.id');
 
-        // Identity type breakdown
-        $identityQuery = IdentitasTersangka::query()
-            ->join('tersangka', 'identitas_tersangka.tersangka_id', '=', 'tersangka.id')
-            ->join('laporan', 'tersangka.laporan_id', '=', 'laporan.id');
+                if ($hasKategori) {
+                    $query->where('laporan.kategori_kejahatan_id', $filters['kategori_id']);
+                }
+                if ($hasBulan) {
+                    $query->whereRaw('MONTH(laporan.tanggal_laporan) = ?', [$filters['bulan']]);
+                }
+                if ($hasTahun) {
+                    $query->whereRaw('YEAR(laporan.tanggal_laporan) = ?', [$filters['tahun']]);
+                }
+                if ($hasWilayah) {
+                    $query->where('laporan.kode_kabupaten_kejadian', $filters['wilayah_kode']);
+                }
+            }
+            if ($hasPlatform) {
+                $query->whereExists(function ($sub) use ($filters) {
+                    $sub->select(DB::raw(1))
+                        ->from('identitas_tersangka')
+                        ->whereColumn('identitas_tersangka.tersangka_id', 'tersangka.id')
+                        ->where('identitas_tersangka.platform', $filters['platform_name']);
+                });
+            }
+            if ($hasDemographic) {
+                $query->whereExists(function ($sub) use ($filters, $hasGender, $hasPendidikan, $hasUsia) {
+                    $sub->select(DB::raw(1))
+                        ->from('korban')
+                        ->join('orang', 'korban.orang_id', '=', 'orang.id')
+                        ->join('laporan as lap_age', 'korban.laporan_id', '=', 'lap_age.id')
+                        ->whereColumn('korban.laporan_id', 'tersangka.laporan_id');
 
-        if ($startDate && $endDate) {
-            $identityQuery->whereBetween('laporan.tanggal_laporan', [$startDate, $endDate]);
+                    if ($hasGender) $sub->where('orang.jenis_kelamin', $filters['gender']);
+                    if ($hasPendidikan) $sub->where('orang.pendidikan', $filters['pendidikan']);
+                    if ($hasUsia) {
+                        $sub->whereRaw(
+                            'TIMESTAMPDIFF(YEAR, orang.tanggal_lahir, lap_age.tanggal_laporan) BETWEEN ? AND ?',
+                            self::AGE_GROUPS[$filters['usia_group']] ?? [0, 200]
+                        );
+                    }
+                });
+            }
         }
-        if (!empty($kategoriFokus)) {
-            $identityQuery->where('laporan.kategori_kejahatan_id', $kategoriFokus);
+
+        // ── Context: identitas_tersangka ───────────────────────────
+        if ($context === 'identitas_tersangka') {
+            // tersangka is expected to be joined by caller
+            $needsLaporan = $hasKategori || $hasBulan || $hasTahun || $hasWilayah;
+            if ($needsLaporan) {
+                $query->join('laporan', 'tersangka.laporan_id', '=', 'laporan.id');
+
+                if ($hasKategori) {
+                    $query->where('laporan.kategori_kejahatan_id', $filters['kategori_id']);
+                }
+                if ($hasBulan) {
+                    $query->whereRaw('MONTH(laporan.tanggal_laporan) = ?', [$filters['bulan']]);
+                }
+                if ($hasTahun) {
+                    $query->whereRaw('YEAR(laporan.tanggal_laporan) = ?', [$filters['tahun']]);
+                }
+                if ($hasWilayah) {
+                    $query->where('laporan.kode_kabupaten_kejadian', $filters['wilayah_kode']);
+                }
+            }
+            if ($hasPlatform) {
+                $query->where('identitas_tersangka.platform', $filters['platform_name']);
+            }
+            if ($hasDemographic) {
+                $query->whereExists(function ($sub) use ($filters, $hasGender, $hasPendidikan, $hasUsia) {
+                    $sub->select(DB::raw(1))
+                        ->from('korban')
+                        ->join('orang', 'korban.orang_id', '=', 'orang.id')
+                        ->join('laporan as lap_age', 'korban.laporan_id', '=', 'lap_age.id')
+                        ->whereColumn('korban.laporan_id', 'tersangka.laporan_id');
+
+                    if ($hasGender) $sub->where('orang.jenis_kelamin', $filters['gender']);
+                    if ($hasPendidikan) $sub->where('orang.pendidikan', $filters['pendidikan']);
+                    if ($hasUsia) {
+                        $sub->whereRaw(
+                            'TIMESTAMPDIFF(YEAR, orang.tanggal_lahir, lap_age.tanggal_laporan) BETWEEN ? AND ?',
+                            self::AGE_GROUPS[$filters['usia_group']] ?? [0, 200]
+                        );
+                    }
+                });
+            }
         }
 
-        $identityByType = $identityQuery
+        return $query;
+    }
+
+    /**
+     * Apply an age-group filter using TIMESTAMPDIFF on orang.tanggal_lahir.
+     */
+    private function applyAgeFilter($query, string $group): void
+    {
+        $bounds = self::AGE_GROUPS[$group] ?? null;
+        if (!$bounds) {
+            return;
+        }
+
+        $query->whereRaw(
+            'TIMESTAMPDIFF(YEAR, orang.tanggal_lahir, laporan.tanggal_laporan) BETWEEN ? AND ?',
+            [$bounds[0], $bounds[1]]
+        );
+    }
+
+    // =========================================================================
+    // 1. KEY_STATS
+    // =========================================================================
+
+    private function getKeyStats(array $filters): array
+    {
+        // --- Laporan counts ---
+        $laporanQuery = Laporan::query();
+        $this->applyGlobalFilters($laporanQuery, $filters, 'laporan');
+
+        $totalLaporan = (clone $laporanQuery)->count();
+
+        $totalSelesai = (clone $laporanQuery)
+            ->whereIn('status', ['SP3', 'RJ', 'Diversi'])
+            ->count();
+
+        $clearanceRate = $totalLaporan > 0
+            ? round(($totalSelesai / $totalLaporan) * 100, 1)
+            : 0;
+
+        // --- Total Kerugian (via korban→orang, fully filtered) ---
+        $kerugianQuery = Korban::query()
+            ->join('orang', 'korban.orang_id', '=', 'orang.id');
+        $this->applyGlobalFilters($kerugianQuery, $filters, 'korban');
+
+        $totalKerugian = (float) $kerugianQuery->sum('korban.kerugian_nominal');
+
+        // --- Suspect Identification Rate ---
+        $tersangkaQuery = Tersangka::query();
+        $this->applyGlobalFilters($tersangkaQuery, $filters, 'tersangka');
+
+        $totalTersangka  = (clone $tersangkaQuery)->count();
+        $identifiedCount = (clone $tersangkaQuery)->whereNotNull('tersangka.orang_id')->count();
+
+        $suspectIdRate = $totalTersangka > 0
+            ? round(($identifiedCount / $totalTersangka) * 100, 1)
+            : 0;
+
+        return [
+            'total_laporan'    => $totalLaporan,
+            'total_kerugian'   => $totalKerugian,
+            'total_selesai'    => $totalSelesai,
+            'clearance_rate'   => $clearanceRate,
+            'total_tersangka'  => $totalTersangka,
+            'identified_count' => $identifiedCount,
+            'suspect_id_rate'  => $suspectIdRate,
+        ];
+    }
+
+    // =========================================================================
+    // 2. MONTHLY_COMBO
+    // =========================================================================
+
+    /**
+     * Full 12-month trend (Jan–Dec).
+     * All filters EXCEPT bulan are applied globally.
+     * The active bulan is returned separately so the frontend can highlight it.
+     */
+    private function getMonthlyCombo(array $filters): array
+    {
+        // Remove bulan from the filter set for this query — we always show all 12 months
+        $monthFilters = $filters;
+        $activeBulan  = $monthFilters['bulan'] ?? null;
+        $monthFilters['bulan'] = null;
+
+        $year = $filters['tahun'] ?? null;
+
+        $raw = DB::table('laporan')
+            ->selectRaw('MONTH(laporan.tanggal_laporan) as bulan')
+            ->selectRaw('COUNT(DISTINCT laporan.id) as report_count')
+            ->selectRaw('COALESCE(SUM(korban.kerugian_nominal), 0) as total_loss')
+            ->leftJoin('korban', 'korban.laporan_id', '=', 'laporan.id');
+
+        // Filter by year only when tahun is explicitly selected
+        if ($year) {
+            $raw->whereYear('laporan.tanggal_laporan', $year);
+        }
+
+        // Remove tahun from monthly filters — already handled above
+        $monthFilters['tahun'] = null;
+
+        // Apply all filters except bulan (and tahun) to the raw query
+        $this->applyMonthlyFilters($raw, $monthFilters);
+
+        $raw = $raw->groupByRaw('MONTH(laporan.tanggal_laporan)')
+            ->get()
+            ->keyBy('bulan');
+
+        $displayYear = $year ?? Carbon::now()->year;
+        $months = [];
+        for ($m = 1; $m <= 12; $m++) {
+            $row = $raw->get($m);
+            $months[] = [
+                'month'        => Carbon::create($displayYear, $m, 1)->translatedFormat('M'),
+                'bulan'        => $m,
+                'report_count' => $row ? (int) $row->report_count : 0,
+                'total_loss'   => $row ? (float) $row->total_loss : 0,
+                'highlighted'  => $activeBulan === $m,
+            ];
+        }
+
+        return $months;
+    }
+
+    /**
+     * Apply non-bulan filters to the raw monthly query (DB::table context).
+     * This is a specialized version because the monthly query uses DB::table
+     * rather than Eloquent Builder.
+     */
+    private function applyMonthlyFilters($query, array $filters): void
+    {
+        $hasKategori   = !empty($filters['kategori_id']);
+        $hasGender     = !empty($filters['gender']);
+        $hasPendidikan = !empty($filters['pendidikan']);
+        $hasUsia       = !empty($filters['usia_group']);
+
+        if ($hasKategori) {
+            $query->where('laporan.kategori_kejahatan_id', $filters['kategori_id']);
+        }
+
+        // Demographic filters require korban→orang existence
+        if ($hasGender || $hasPendidikan || $hasUsia) {
+            $query->whereExists(function ($sub) use ($filters, $hasGender, $hasPendidikan, $hasUsia) {
+                $sub->select(DB::raw(1))
+                    ->from('korban')
+                    ->join('orang', 'korban.orang_id', '=', 'orang.id')
+                    ->join('laporan as lap_age', 'korban.laporan_id', '=', 'lap_age.id')
+                    ->whereColumn('korban.laporan_id', 'laporan.id');
+
+                if ($hasGender) {
+                    $sub->where('orang.jenis_kelamin', $filters['gender']);
+                }
+                if ($hasPendidikan) {
+                    $sub->where('orang.pendidikan', $filters['pendidikan']);
+                }
+                if ($hasUsia) {
+                    $sub->whereRaw(
+                        'TIMESTAMPDIFF(YEAR, orang.tanggal_lahir, lap_age.tanggal_laporan) BETWEEN ? AND ?',
+                        self::AGE_GROUPS[$filters['usia_group']] ?? [0, 200]
+                    );
+                }
+            });
+        }
+    }
+
+    // =========================================================================
+    // 3. CATEGORIES_BAR (was Treemap — now filtered globally)
+    // =========================================================================
+
+    /**
+     * All categories with total_reports & total_losses.
+     * Cross-filtered by all global filters.
+     */
+    private function getCategoriesBar(array $filters): array
+    {
+        $query = DB::table('kategori_kejahatan')
+            ->select('kategori_kejahatan.id', 'kategori_kejahatan.nama')
+            ->selectRaw('COUNT(DISTINCT laporan.id) as total_reports')
+            ->selectRaw('COALESCE(SUM(korban.kerugian_nominal), 0) as total_losses')
+            ->leftJoin('laporan', 'laporan.kategori_kejahatan_id', '=', 'kategori_kejahatan.id')
+            ->leftJoin('korban', 'korban.laporan_id', '=', 'laporan.id');
+
+        // Apply non-kategori filters (kategori is the grouping axis itself)
+        $barFilters = $filters;
+        $barFilters['kategori_id'] = null;
+
+        if (!empty($filters['bulan'])) {
+            $query->where(function ($q) use ($filters) {
+                $q->whereNull('laporan.id')
+                  ->orWhereRaw('MONTH(laporan.tanggal_laporan) = ?', [$filters['bulan']]);
+            });
+        }
+
+        if (!empty($filters['tahun'])) {
+            $query->where(function ($q) use ($filters) {
+                $q->whereNull('laporan.id')
+                  ->orWhereRaw('YEAR(laporan.tanggal_laporan) = ?', [$filters['tahun']]);
+            });
+        }
+
+        // Demographic filters
+        $hasGender     = !empty($barFilters['gender']);
+        $hasPendidikan = !empty($barFilters['pendidikan']);
+        $hasUsia       = !empty($barFilters['usia_group']);
+
+        if ($hasGender || $hasPendidikan || $hasUsia) {
+            $query->whereExists(function ($sub) use ($barFilters, $hasGender, $hasPendidikan, $hasUsia) {
+                $sub->select(DB::raw(1))
+                    ->from('korban as k2')
+                    ->join('orang', 'k2.orang_id', '=', 'orang.id')
+                    ->join('laporan as lap_age', 'k2.laporan_id', '=', 'lap_age.id')
+                    ->whereColumn('k2.laporan_id', 'laporan.id');
+
+                if ($hasGender) $sub->where('orang.jenis_kelamin', $barFilters['gender']);
+                if ($hasPendidikan) $sub->where('orang.pendidikan', $barFilters['pendidikan']);
+                if ($hasUsia) {
+                    $sub->whereRaw(
+                        'TIMESTAMPDIFF(YEAR, orang.tanggal_lahir, lap_age.tanggal_laporan) BETWEEN ? AND ?',
+                        self::AGE_GROUPS[$barFilters['usia_group']] ?? [0, 200]
+                    );
+                }
+            });
+        }
+
+        return $query
+            ->groupBy('kategori_kejahatan.id', 'kategori_kejahatan.nama')
+            ->orderByDesc('total_reports')
+            ->get()
+            ->map(fn ($row) => [
+                'id'            => $row->id,
+                'nama'          => $row->nama,
+                'total_reports' => (int) $row->total_reports,
+                'total_losses'  => (float) $row->total_losses,
+                'active'        => !empty($filters['kategori_id']) && $row->id == $filters['kategori_id'],
+            ])
+            ->toArray();
+    }
+
+    // =========================================================================
+    // 4. VICTIM_PROFILING
+    // =========================================================================
+
+    /**
+     * Gender, Education, Occupation breakdown.
+     * Stacked cross-filters: each dimension excludes ITSELF from the filter set
+     * so clicking "LAKI-LAKI" won't reduce the Gender chart to a single bar.
+     *
+     * Example: if kategori_id=3 AND pendidikan="S1":
+     *   - Gender chart   → filtered by kategori_id + pendidikan (NOT gender)
+     *   - Education chart → filtered by kategori_id + gender (NOT pendidikan)
+     *   - Occupation chart → filtered by kategori_id + pendidikan + gender
+     */
+    private function getVictimProfiling(array $filters): array
+    {
+        $excluded = self::EXCLUDED_LABELS;
+
+        // ── Gender: exclude gender filter so the chart remains full ─
+        $genderFilters = $filters;
+        $genderFilters['gender'] = null;
+
+        $genderQuery = Korban::query()
+            ->join('orang', 'korban.orang_id', '=', 'orang.id');
+        $this->applyGlobalFilters($genderQuery, $genderFilters, 'korban');
+
+        $gender = $genderQuery
+            ->select('orang.jenis_kelamin as label', DB::raw('COUNT(*) as total'))
+            ->whereNotNull('orang.jenis_kelamin')
+            ->where('orang.jenis_kelamin', '!=', '')
+            ->whereNotIn('orang.jenis_kelamin', $excluded)
+            ->groupBy('orang.jenis_kelamin')
+            ->orderByDesc('total')
+            ->get();
+
+        // ── Education: exclude pendidikan filter ───────────────────
+        $eduFilters = $filters;
+        $eduFilters['pendidikan'] = null;
+
+        $eduQuery = Korban::query()
+            ->join('orang', 'korban.orang_id', '=', 'orang.id');
+        $this->applyGlobalFilters($eduQuery, $eduFilters, 'korban');
+
+        $education = $eduQuery
+            ->select('orang.pendidikan as label', DB::raw('COUNT(*) as total'))
+            ->whereNotNull('orang.pendidikan')
+            ->where('orang.pendidikan', '!=', '')
+            ->whereNotIn('orang.pendidikan', $excluded)
+            ->groupBy('orang.pendidikan')
+            ->orderByDesc('total')
+            ->get();
+
+        // ── Occupation: all filters applied (including gender/pendidikan) ──
+        $occQuery = Korban::query()
+            ->join('orang', 'korban.orang_id', '=', 'orang.id');
+        $this->applyGlobalFilters($occQuery, $filters, 'korban');
+
+        $occupation = $occQuery
+            ->select('orang.pekerjaan as label', DB::raw('COUNT(*) as total'))
+            ->whereNotNull('orang.pekerjaan')
+            ->where('orang.pekerjaan', '!=', '')
+            ->whereNotIn('orang.pekerjaan', $excluded)
+            ->groupBy('orang.pekerjaan')
+            ->orderByDesc('total')
+            ->get();
+
+        // ── Age Groups: exclude usia_group filter ──────────────────
+        $ageFilters = $filters;
+        $ageFilters['usia_group'] = null;
+
+        $ageQuery = Korban::query()
+            ->join('orang', 'korban.orang_id', '=', 'orang.id')
+            ->whereNotNull('orang.tanggal_lahir');
+        $this->applyGlobalFilters($ageQuery, $ageFilters, 'korban');
+
+        $ageRaw = (clone $ageQuery)
+            ->selectRaw('TIMESTAMPDIFF(YEAR, orang.tanggal_lahir, laporan.tanggal_laporan) as usia')
+            ->get()
+            ->pluck('usia');
+
+        // Bucket into age groups (use plain array — Collection doesn't support indirect modification in PHP 8.2+)
+        $ageBuckets = array_fill_keys(array_keys(self::AGE_GROUPS), 0);
+        foreach ($ageRaw as $age) {
+            foreach (self::AGE_GROUPS as $label => [$min, $max]) {
+                if ($age >= $min && $age <= $max) {
+                    $ageBuckets[$label]++;
+                    break;
+                }
+            }
+        }
+        // Remove empty buckets
+        $ageBuckets = array_filter($ageBuckets, fn ($v) => $v > 0);
+
+        return [
+            'gender' => [
+                'labels' => $gender->pluck('label')->toArray(),
+                'data'   => $gender->pluck('total')->map(fn ($v) => (int) $v)->toArray(),
+            ],
+            'education' => [
+                'labels' => $education->pluck('label')->toArray(),
+                'data'   => $education->pluck('total')->map(fn ($v) => (int) $v)->toArray(),
+            ],
+            'occupation' => [
+                'labels' => $occupation->pluck('label')->toArray(),
+                'data'   => $occupation->pluck('total')->map(fn ($v) => (int) $v)->toArray(),
+            ],
+            'usia' => [
+                'labels' => array_keys($ageBuckets),
+                'data'   => array_values($ageBuckets),
+            ],
+        ];
+    }
+
+    // =========================================================================
+    // 5. PLATFORM_SUNBURST
+    // =========================================================================
+
+    private function getPlatformSunburst(array $filters): array
+    {
+        $baseQuery = IdentitasTersangka::query()
+            ->join('tersangka', 'identitas_tersangka.tersangka_id', '=', 'tersangka.id');
+        $this->applyGlobalFilters($baseQuery, $filters, 'identitas_tersangka');
+
+        // Outer ring: group by jenis
+        $byJenis = (clone $baseQuery)
             ->select('identitas_tersangka.jenis', DB::raw('COUNT(*) as total'))
             ->groupBy('identitas_tersangka.jenis')
             ->orderByDesc('total')
             ->get();
 
-        // Linked tersangka (same identity across reports)
-        $linkedIdentities = IdentitasTersangka::select('jenis', 'nilai', DB::raw('COUNT(*) as count'))
-            ->groupBy('jenis', 'nilai')
-            ->having('count', '>', 1)
-            ->get();
-
-        $linkedTersangkaIds = collect();
-        foreach ($linkedIdentities as $dup) {
-            $ids = IdentitasTersangka::where('jenis', $dup->jenis)
-                ->where('nilai', $dup->nilai)
-                ->pluck('tersangka_id');
-            $linkedTersangkaIds = $linkedTersangkaIds->merge($ids);
-        }
-
-        $totalLinked = $linkedTersangkaIds->unique()->count();
-        $totalLinkedGroups = $linkedIdentities->count();
-
-        // Tersangka by crime category
-        $byCategory = Tersangka::query()
-            ->join('laporan', 'tersangka.laporan_id', '=', 'laporan.id')
-            ->join('kategori_kejahatan', 'laporan.kategori_kejahatan_id', '=', 'kategori_kejahatan.id')
-            ->select('kategori_kejahatan.nama', DB::raw('COUNT(tersangka.id) as total'))
-            ->when($startDate && $endDate, fn($q) => $q->whereBetween('laporan.tanggal_laporan', [$startDate, $endDate]))
-            ->when(!empty($kategoriFokus), fn($q) => $q->where('laporan.kategori_kejahatan_id', $kategoriFokus))
-            ->groupBy('kategori_kejahatan.id', 'kategori_kejahatan.nama')
+        // Inner ring: group by jenis + platform (exclude unknown/empty)
+        $byJenisPlatform = (clone $baseQuery)
+            ->select(
+                'identitas_tersangka.jenis',
+                'identitas_tersangka.platform',
+                DB::raw('COUNT(*) as total')
+            )
+            ->whereNotNull('identitas_tersangka.platform')
+            ->where('identitas_tersangka.platform', '!=', '')
+            ->where('identitas_tersangka.platform', '!=', 'Tidak Diketahui')
+            ->groupBy('identitas_tersangka.jenis', 'identitas_tersangka.platform')
+            ->orderBy('identitas_tersangka.jenis')
             ->orderByDesc('total')
-            ->get();
+            ->get()
+            ->groupBy('jenis');
 
-        return [
-            'total' => $total,
-            'identified' => $identified,
-            'unidentified' => $unidentified,
-            'identification_rate' => $total > 0 ? round(($identified / $total) * 100, 1) : 0,
-            'total_linked' => $totalLinked,
-            'total_linked_groups' => $totalLinkedGroups,
-            'identity_by_type' => [
-                'labels' => $identityByType->pluck('jenis')->map(fn($j) => IdentitasTersangka::getJenisOptions()[$j] ?? $j)->toArray(),
-                'data' => $identityByType->pluck('total')->toArray(),
-            ],
-            'by_category' => [
-                'labels' => $byCategory->pluck('nama')->toArray(),
-                'data' => $byCategory->pluck('total')->toArray(),
-            ],
-        ];
+        $jenisOptions = IdentitasTersangka::getJenisOptions();
+
+        return $byJenis->map(function ($row) use ($byJenisPlatform, $jenisOptions) {
+            $platforms = $byJenisPlatform->get($row->jenis, collect());
+
+            return [
+                'jenis'       => $row->jenis,
+                'jenis_label' => $jenisOptions[$row->jenis] ?? $row->jenis,
+                'total'       => (int) $row->total,
+                'platforms'   => $platforms->map(fn ($p) => [
+                    'platform' => $p->platform,
+                    'total'    => (int) $p->total,
+                ])->values()->toArray(),
+            ];
+        })->values()->toArray();
     }
 
-    /**
-     * Get pelapor vs korban comparison statistics
-     */
-    private function getPelaporKorbanComparison($startDate, $endDate): array
+    // =========================================================================
+    // 6. RECENT_REPORTS (Live Threat Feed)
+    // =========================================================================
+
+    private function getRecentReports(): array
     {
-        // Total unique pelapor
-        $pelaporQuery = Laporan::query()
-            ->when($startDate && $endDate, fn($q) => $q->whereBetween('tanggal_laporan', [$startDate, $endDate]));
-        
-        $totalPelapor = $pelaporQuery->distinct('pelapor_id')->count('pelapor_id');
-
-        // Total korban
-        $korbanQuery = Korban::query()
-            ->join('laporan', 'korban.laporan_id', '=', 'laporan.id')
-            ->when($startDate && $endDate, fn($q) => $q->whereBetween('laporan.tanggal_laporan', [$startDate, $endDate]));
-
-        $totalKorban = $korbanQuery->count();
-
-        // Pelapor gender breakdown
-        $pelaporGender = Laporan::query()
-            ->join('orang', 'laporan.pelapor_id', '=', 'orang.id')
-            ->select('orang.jenis_kelamin', DB::raw('COUNT(DISTINCT laporan.pelapor_id) as total'))
-            ->when($startDate && $endDate, fn($q) => $q->whereBetween('laporan.tanggal_laporan', [$startDate, $endDate]))
-            ->groupBy('orang.jenis_kelamin')
-            ->get();
-
-        // Korban gender breakdown
-        $korbanGender = Korban::query()
-            ->join('laporan', 'korban.laporan_id', '=', 'laporan.id')
-            ->join('orang', 'korban.orang_id', '=', 'orang.id')
-            ->select('orang.jenis_kelamin', DB::raw('COUNT(*) as total'))
-            ->when($startDate && $endDate, fn($q) => $q->whereBetween('laporan.tanggal_laporan', [$startDate, $endDate]))
-            ->groupBy('orang.jenis_kelamin')
-            ->get();
-
-        // Tersangka gender breakdown (only identified)
-        $tersangkaGender = Tersangka::query()
-            ->join('laporan', 'tersangka.laporan_id', '=', 'laporan.id')
-            ->join('orang', 'tersangka.orang_id', '=', 'orang.id')
-            ->select('orang.jenis_kelamin', DB::raw('COUNT(*) as total'))
-            ->when($startDate && $endDate, fn($q) => $q->whereBetween('laporan.tanggal_laporan', [$startDate, $endDate]))
-            ->whereNotNull('tersangka.orang_id')
-            ->groupBy('orang.jenis_kelamin')
-            ->get();
-
-        // Format gender comparison for stacked chart
-        $genderLabels = ['LAKI-LAKI', 'PEREMPUAN'];
-        $pelaporByGender = [];
-        $korbanByGender = [];
-        $tersangkaByGender = [];
-
-        foreach ($genderLabels as $g) {
-            $pelaporByGender[] = $pelaporGender->firstWhere('jenis_kelamin', $g)?->total ?? 0;
-            $korbanByGender[] = $korbanGender->firstWhere('jenis_kelamin', $g)?->total ?? 0;
-            $tersangkaByGender[] = $tersangkaGender->firstWhere('jenis_kelamin', $g)?->total ?? 0;
-        }
-
-        // Top 5 pekerjaan pelapor
-        $topPekerjaanPelapor = Laporan::query()
-            ->join('orang', 'laporan.pelapor_id', '=', 'orang.id')
-            ->select('orang.pekerjaan', DB::raw('COUNT(DISTINCT laporan.pelapor_id) as total'))
-            ->when($startDate && $endDate, fn($q) => $q->whereBetween('laporan.tanggal_laporan', [$startDate, $endDate]))
-            ->whereNotNull('orang.pekerjaan')
-            ->where('orang.pekerjaan', '!=', '')
-            ->groupBy('orang.pekerjaan')
-            ->orderByDesc('total')
-            ->limit(5)
-            ->get();
-
-        return [
-            'total_pelapor' => $totalPelapor,
-            'total_korban' => $totalKorban,
-            'gender_comparison' => [
-                'labels' => $genderLabels,
-                'pelapor' => $pelaporByGender,
-                'korban' => $korbanByGender,
-                'tersangka' => $tersangkaByGender,
-            ],
-            'top_pekerjaan_pelapor' => [
-                'labels' => $topPekerjaanPelapor->pluck('pekerjaan')->toArray(),
-                'data' => $topPekerjaanPelapor->pluck('total')->toArray(),
-            ],
-        ];
+        return Laporan::query()
+            ->with('kategoriKejahatan:id,nama')
+            ->withSum('korban', 'kerugian_nominal')
+            ->select('id', 'kategori_kejahatan_id', 'created_at')
+            ->latest('created_at')
+            ->limit(10)
+            ->get()
+            ->map(fn ($lap) => [
+                'id'             => $lap->id,
+                'waktu'          => $lap->created_at->format('H:i'),
+                'kategori'       => $lap->kategoriKejahatan?->nama ?? '-',
+                'total_kerugian' => (float) ($lap->korban_sum_kerugian_nominal ?? 0),
+            ])
+            ->toArray();
     }
 
-    /**
-     * Apply common filters to a query
-     */
-    private function applyFiltersToQuery($query, $startDate, $endDate, $filterPendidikan, $filterGender, $filterAgeGroup, $kategoriFokus): void
+    // =========================================================================
+    // FILTER OPTIONS (for frontend dropdowns)
+    // =========================================================================
+
+    private function getFilterOptions(): array
     {
-        if ($startDate && $endDate) {
-            $query->whereBetween('laporan.tanggal_laporan', [$startDate, $endDate]);
-        }
+        return [
+            'kategori' => KategoriKejahatan::active()
+                ->orderBy('nama')
+                ->get(['id', 'nama'])
+                ->toArray(),
 
-        if (!empty($filterPendidikan)) {
-            $query->whereIn('orang.pendidikan', $filterPendidikan);
-        }
+            'gender' => ['LAKI-LAKI', 'PEREMPUAN'],
 
-        if (!empty($filterGender)) {
-            $query->whereIn('orang.jenis_kelamin', $filterGender);
-        }
+            'pendidikan' => MasterPendidikan::query()
+                ->orderBy('nama')
+                ->pluck('nama')
+                ->toArray(),
 
-        if (!empty($filterAgeGroup)) {
-            $query->where(function ($q) use ($filterAgeGroup) {
-                foreach ($filterAgeGroup as $group) {
-                    if (isset(self::AGE_GROUPS[$group])) {
-                        $min = self::AGE_GROUPS[$group]['min'];
-                        $max = self::AGE_GROUPS[$group]['max'];
-                        $q->orWhereRaw(
-                            'TIMESTAMPDIFF(YEAR, orang.tanggal_lahir, laporan.tanggal_laporan) BETWEEN ? AND ?',
-                            [$min, $max]
-                        );
-                    }
-                }
-            });
-        }
+            'usia_group' => array_keys(self::AGE_GROUPS),
 
-        if (!empty($kategoriFokus)) {
-            $query->where('laporan.kategori_kejahatan_id', $kategoriFokus);
-        }
+            'bulan' => collect(range(1, 12))->map(fn ($m) => [
+                'value' => $m,
+                'label' => Carbon::create(null, $m, 1)->translatedFormat('F'),
+            ])->toArray(),
+
+            'tahun' => DB::table('laporan')
+                ->selectRaw('YEAR(tanggal_laporan) as year')
+                ->whereNotNull('tanggal_laporan')
+                ->distinct()
+                ->orderByDesc('year')
+                ->pluck('year')
+                ->toArray(),
+
+            'wilayah' => Wilayah::where('kode', 'LIKE', '33.__')
+                ->orderBy('nama')
+                ->get(['kode', 'nama'])
+                ->toArray(),
+
+            'platform' => DB::table('identitas_tersangka')
+                ->whereNotNull('platform')
+                ->where('platform', '!=', '')
+                ->distinct()
+                ->orderBy('platform')
+                ->pluck('platform')
+                ->toArray(),
+        ];
     }
 }

@@ -3,11 +3,13 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Imports\AduanImport;
 use App\Models\IdentitasTersangka;
 use App\Models\Laporan;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
+use Maatwebsite\Excel\Facades\Excel;
 
 /**
  * AdminLaporanController
@@ -28,6 +30,12 @@ class AdminLaporanController extends Controller
             'kategoriKejahatan',
             'assignedBy',
         ]);
+
+        // Year filter (default: current year)
+        $tahun = $request->input('tahun', date('Y'));
+        if ($tahun) {
+            $query->whereYear('tanggal_laporan', $tahun);
+        }
 
         // Search filters
         if ($request->filled('search')) {
@@ -57,8 +65,8 @@ class AdminLaporanController extends Controller
             $query->where('status', $request->input('status'));
         }
 
-        // Sorting - newest first
-        $query->orderBy('created_at', 'desc');
+        // Sorting - by STPA sequence number descending (e.g., 231, 230, 229...)
+        $query->orderByRaw("CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(nomor_stpa, '/', 2), '/', -1) AS UNSIGNED) DESC");
 
         $laporan = $query->paginate(15)->withQueryString();
 
@@ -70,13 +78,14 @@ class AdminLaporanController extends Controller
 
         return Inertia::render('Admin/Laporan/Index', [
             'laporan' => $laporan,
-            'filters' => $request->only(['search', 'assigned', 'subdit', 'status']),
+            'filters' => $request->only(['search', 'assigned', 'subdit', 'status', 'tahun']),
             'subditOptions' => [
                 ['value' => 1, 'label' => 'Subdit 1'],
                 ['value' => 2, 'label' => 'Subdit 2'],
                 ['value' => 3, 'label' => 'Subdit 3'],
             ],
             'statusOptions' => Laporan::getStatusOptions(),
+            'tahunOptions' => [2024, 2025, 2026],
         ]);
     }
 
@@ -257,5 +266,49 @@ class AdminLaporanController extends Controller
         ]);
 
         return back()->with('success', "Laporan berhasil ditugaskan ke Subdit {$request->subdit}");
+    }
+
+    /**
+     * Import laporan from Excel file.
+     */
+    public function import(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:xlsx,xls,csv|max:10240',
+        ], [
+            'file.required' => 'File Excel wajib dipilih.',
+            'file.mimes'    => 'Format file harus .xlsx, .xls, atau .csv.',
+            'file.max'      => 'Ukuran file maksimal 10MB.',
+        ]);
+
+        try {
+            // Increase time limit for large Excel files (5 minutes)
+            set_time_limit(300);
+
+            $import = new AduanImport();
+            Excel::import($import, $request->file('file'));
+
+            $message = "Import selesai! ✅ {$import->imported} data berhasil diimport.";
+
+            if ($import->skipped > 0) {
+                $message .= " ⏭️ {$import->skipped} baris dilewati (kosong).";
+            }
+
+            if (!empty($import->errors)) {
+                $errorCount = count($import->errors);
+                $message .= " ⚠️ {$errorCount} baris error.";
+            }
+
+            return back()->with('success', $message);
+        } catch (\Maatwebsite\Excel\Validators\ValidationException $e) {
+            $failures = $e->failures();
+            $errorMessages = [];
+            foreach ($failures as $failure) {
+                $errorMessages[] = "Baris {$failure->row()}: {$failure->errors()[0]}";
+            }
+            return back()->with('error', 'Validasi gagal: ' . implode(', ', array_slice($errorMessages, 0, 5)));
+        } catch (\Throwable $e) {
+            return back()->with('error', 'Gagal import: ' . $e->getMessage());
+        }
     }
 }

@@ -39,6 +39,7 @@ Route::middleware(['auth', 'verified', 'role:admin'])->prefix('admin')->name('ad
     
     // Kelola Laporan Masuk (assign ke subdit)
     Route::get('laporan', [AdminLaporanController::class, 'index'])->name('laporan.index');
+    Route::post('laporan/import', [AdminLaporanController::class, 'import'])->name('laporan.import');
     Route::get('laporan/{laporan}', [AdminLaporanController::class, 'show'])->name('laporan.show');
     Route::post('laporan/{laporan}/assign', [AdminLaporanController::class, 'assignSubdit'])->name('laporan.assign');
     

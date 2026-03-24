@@ -10,6 +10,7 @@ const props = defineProps({
     filters: Object,
     statusOptions: Object,
     unitOptions: Array,
+    tahunOptions: Array,
 });
 
 const toast = useToast();
@@ -19,6 +20,7 @@ const filterStatus = ref(props.filters?.status || '');
 const filterUnit = ref(props.filters?.unit || '');
 const dateFrom = ref(props.filters?.date_from || '');
 const dateTo = ref(props.filters?.date_to || '');
+const tahun = ref(props.filters?.tahun || new Date().getFullYear().toString());
 
 // Status badge colors
 const getStatusClass = (stat) => {
@@ -102,6 +104,7 @@ const applyFilters = () => {
             unit: filterUnit.value || undefined,
             date_from: dateFrom.value || undefined,
             date_to: dateTo.value || undefined,
+            tahun: tahun.value || undefined,
         }, {
             preserveState: true,
             replace: true,
@@ -109,7 +112,7 @@ const applyFilters = () => {
     }, 300);
 };
 
-watch([search, filterStatus, filterUnit, dateFrom, dateTo], applyFilters);
+watch([search, filterStatus, filterUnit, dateFrom, dateTo, tahun], applyFilters);
 
 // Clear filters
 const clearFilters = () => {
@@ -118,13 +121,26 @@ const clearFilters = () => {
     filterUnit.value = '';
     dateFrom.value = '';
     dateTo.value = '';
+    tahun.value = new Date().getFullYear().toString();
 };
 
 // Inline editing states
 const editingUnit = ref(null);
 const editingStatus = ref(null);
+const editingKeterangan = ref(null);
 const savingUnit = ref(null);
 const savingStatus = ref(null);
+const savingKeterangan = ref(null);
+
+const keteranganOptions = ['Pengaduan LI', 'Limpahan'];
+
+const getKeteranganClass = (ket) => {
+    const classes = {
+        'Pengaduan LI': 'bg-teal-100 text-teal-800 border-teal-300',
+        'Limpahan': 'bg-orange-100 text-orange-800 border-orange-300',
+    };
+    return classes[ket] || 'bg-gray-100 text-gray-800 border-gray-300';
+};
 
 // Update Unit
 const updateUnit = (item, newUnit) => {
@@ -162,6 +178,26 @@ const updateStatus = (item, newStatus) => {
         onError: () => {
             toast.error('Gagal memperbarui status');
             savingStatus.value = null;
+        }
+    });
+};
+
+// Update Keterangan
+const updateKeterangan = (item, newKeterangan) => {
+    savingKeterangan.value = item.id;
+    router.patch(`/min-ops/kasus/${item.id}/keterangan`, {
+        keterangan: newKeterangan,
+    }, {
+        preserveState: true,
+        preserveScroll: true,
+        onSuccess: () => {
+            toast.success(`Keterangan diperbarui ke ${newKeterangan}`);
+            editingKeterangan.value = null;
+            savingKeterangan.value = null;
+        },
+        onError: () => {
+            toast.error('Gagal memperbarui keterangan');
+            savingKeterangan.value = null;
         }
     });
 };
@@ -283,6 +319,14 @@ const stats = computed(() => {
                             </option>
                         </select>
 
+                        <!-- Year Filter -->
+                        <select
+                            v-model="tahun"
+                            class="rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent text-sm"
+                        >
+                            <option v-for="yr in tahunOptions" :key="yr" :value="yr">{{ yr }}</option>
+                        </select>
+
                         <!-- Date From -->
                         <input
                             type="date"
@@ -301,7 +345,7 @@ const stats = computed(() => {
 
                         <!-- Clear Filters -->
                         <button
-                            v-if="search || filterStatus || filterUnit || dateFrom || dateTo"
+                            v-if="search || filterStatus || filterUnit || dateFrom || dateTo || tahun != new Date().getFullYear().toString()"
                             @click="clearFilters"
                             class="px-3 py-2 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
                         >
@@ -320,7 +364,7 @@ const stats = computed(() => {
                                 <th class="px-4 py-3 text-left text-sm font-semibold">No. STPA</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold">Tanggal</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold">Pelapor</th>
-                                <th class="px-4 py-3 text-left text-sm font-semibold">Kategori</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold">Keterangan</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold">Unit</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold">Status</th>
                                 <th class="px-4 py-3 text-center text-sm font-semibold">Aksi</th>
@@ -342,8 +386,55 @@ const stats = computed(() => {
                                     <div class="text-sm font-medium text-gray-800">{{ item.pelapor?.nama || '-' }}</div>
                                     <div class="text-xs text-gray-500">{{ item.kategori_kejahatan?.nama || '' }}</div>
                                 </td>
-                                <td class="px-4 py-3 text-sm text-gray-600">
-                                    {{ item.kategori_kejahatan?.nama || '-' }}
+                                <!-- Keterangan Column (Locked after first selection) -->
+                                <td class="px-4 py-3">
+                                    <!-- Show dropdown only when not yet assigned -->
+                                    <div v-if="!item.keterangan && editingKeterangan === item.id" class="flex items-center gap-1">
+                                        <select
+                                            :value="item.keterangan || ''"
+                                            @change="updateKeterangan(item, $event.target.value)"
+                                            :disabled="savingKeterangan === item.id"
+                                            class="text-xs rounded border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent py-1 px-2"
+                                        >
+                                            <option value="">Pilih</option>
+                                            <option v-for="opt in keteranganOptions" :key="opt" :value="opt">
+                                                {{ opt }}
+                                            </option>
+                                        </select>
+                                        <button
+                                            @click="editingKeterangan = null"
+                                            class="p-1 text-gray-400 hover:text-gray-600"
+                                        >
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    <!-- Locked badge with lock icon when already assigned -->
+                                    <div v-else-if="item.keterangan" class="flex items-center gap-1">
+                                        <span
+                                            class="px-2 py-0.5 text-xs font-semibold rounded border"
+                                            :class="getKeteranganClass(item.keterangan)"
+                                        >
+                                            {{ item.keterangan }}
+                                        </span>
+                                        <svg class="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" title="Ubah di halaman detail">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                        </svg>
+                                    </div>
+                                    <!-- Editable button when not yet assigned -->
+                                    <button
+                                        v-else
+                                        @click="editingKeterangan = item.id"
+                                        class="group flex items-center gap-1 cursor-pointer"
+                                    >
+                                        <span class="text-xs text-gray-400 italic">
+                                            Belum diisi
+                                        </span>
+                                        <svg class="w-3 h-3 text-gray-300 group-hover:text-tactical-accent transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                        </svg>
+                                    </button>
                                 </td>
                                 
                                 <!-- Unit Column (Locked after first selection) -->
@@ -421,7 +512,7 @@ const stats = computed(() => {
                                             title="Terindikasi Residivis/Sindikat"
                                         >
                                             <span class="relative flex h-6 w-6 items-center justify-center">
-                                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                                                <span v-if="!item.disposisi_unit" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
                                                 <svg class="relative w-5 h-5 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
                                                     <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
                                                 </svg>

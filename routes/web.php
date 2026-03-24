@@ -8,6 +8,8 @@ use App\Http\Controllers\MasterDataController;
 use App\Http\Controllers\OrangController;
 use App\Http\Controllers\TersangkaController;
 use App\Http\Controllers\PawasController;
+use App\Http\Controllers\Pimpinan\CasePipelineController;
+use App\Http\Controllers\Pimpinan\PetaPlatformController;
 use App\Http\Controllers\Pimpinan\PimpinanDashboardController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
@@ -71,9 +73,13 @@ Route::middleware(['auth', 'verified', 'role:petugas', 'pawas.selected'])->group
     
     // Additional Laporan routes
     Route::prefix('laporan')->name('laporan.')->group(function () {
-        // PDF Generation
-        Route::get('{id}/pdf', [LaporanController::class, 'cetakPdf'])
-            ->name('pdf');
+        // Word Export (STPA .docx)
+        Route::get('{id}/export-word', [LaporanController::class, 'exportStpaWord'])
+            ->name('export-word');
+
+        // Word Export (Surat Pengaduan .docx)
+        Route::get('{id}/export-surat-pengaduan', [LaporanController::class, 'downloadSuratPengaduan'])
+            ->name('export-surat-pengaduan');
         
         // Suspect linkage search
         Route::post('search-suspect', [LaporanController::class, 'searchSuspect'])
@@ -208,6 +214,7 @@ Route::middleware(['auth', 'verified', 'role:admin_subdit'])->prefix('min-ops')-
     Route::put('/kasus/{id}', [CaseManagementController::class, 'update'])->name('update');
     Route::patch('/kasus/{id}/unit', [CaseManagementController::class, 'updateUnit'])->name('update-unit');
     Route::patch('/kasus/{id}/status', [CaseManagementController::class, 'updateStatus'])->name('update-status');
+    Route::patch('/kasus/{id}/keterangan', [CaseManagementController::class, 'updateKeterangan'])->name('update-keterangan');
 });
 
 // ============================================
@@ -217,8 +224,14 @@ Route::middleware(['auth', 'verified', 'role:admin_subdit'])->prefix('min-ops')-
 
 Route::middleware(['auth', 'verified', 'role:pimpinan'])->prefix('pimpinan')->name('pimpinan.')->group(function () {
     
-    // Executive Dashboard - Profiling & Demographics
+    // Menu 1: Executive Dashboard - Profiling & Demographics
     Route::get('/dashboard', [PimpinanDashboardController::class, 'index'])->name('dashboard');
+
+    // Menu 2: Peta & Platform
+    Route::get('/peta-platform', [PetaPlatformController::class, 'index'])->name('peta-platform');
+
+    // Menu 3: Case Pipeline
+    Route::get('/case-pipeline', [CasePipelineController::class, 'index'])->name('case-pipeline');
     
     // Daftar Orang
     Route::get('/orang', [OrangController::class, 'index'])->name('orang.index');

@@ -62,8 +62,12 @@ onMounted(() => {
 // Control panel states
 const selectedUnit = ref(props.laporan?.disposisi_unit || '');
 const selectedStatus = ref(props.laporan?.status || 'Penyelidikan');
+const selectedKeterangan = ref(props.laporan?.keterangan || '');
 const savingUnit = ref(false);
 const savingStatus = ref(false);
+const savingKeterangan = ref(false);
+
+const keteranganOptions = ['Pengaduan LI', 'Limpahan'];
 
 const updateUnit = () => {
     if (!selectedUnit.value) return;
@@ -98,6 +102,25 @@ const updateStatus = () => {
         onError: () => {
             toast.error('Gagal memperbarui status');
             savingStatus.value = false;
+        }
+    });
+};
+
+const updateKeterangan = () => {
+    if (!selectedKeterangan.value) return;
+    savingKeterangan.value = true;
+
+    router.patch(`/min-ops/kasus/${props.laporan.id}/keterangan`, {
+        keterangan: selectedKeterangan.value,
+    }, {
+        preserveScroll: true,
+        onSuccess: () => {
+            toast.success(`Keterangan berhasil diperbarui ke ${selectedKeterangan.value}`);
+            savingKeterangan.value = false;
+        },
+        onError: () => {
+            toast.error('Gagal memperbarui keterangan');
+            savingKeterangan.value = false;
         }
     });
 };
@@ -584,17 +607,41 @@ const getAlamatLengkap = (alamat) => {
                             </div>
                         </div>
 
-                        <!-- Download PDF -->
+                        <!-- Keterangan -->
+                        <div class="mb-5">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Keterangan</label>
+                            <div class="flex gap-2">
+                                <select
+                                    v-model="selectedKeterangan"
+                                    class="flex-1 rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent text-sm"
+                                >
+                                    <option value="">Pilih Keterangan</option>
+                                    <option v-for="opt in keteranganOptions" :key="opt" :value="opt">
+                                        {{ opt }}
+                                    </option>
+                                </select>
+                                <button
+                                    @click="updateKeterangan"
+                                    :disabled="!selectedKeterangan || savingKeterangan"
+                                    class="px-4 py-2 bg-tactical-accent text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                                >
+                                    <span v-if="savingKeterangan">...</span>
+                                    <span v-else>Simpan</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Download STPA Word -->
                         <div class="pt-4 border-t border-gray-200">
                             <a
-                                :href="`/laporan/${laporan.id}/pdf`"
+                                :href="`/laporan/${laporan.id}/export-word`"
                                 target="_blank"
-                                class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-sm font-medium"
+                                class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors text-sm font-medium"
                             >
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                 </svg>
-                                Download PDF
+                                Download STPA (Word)
                             </a>
                         </div>
                     </div>

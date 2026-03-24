@@ -11,7 +11,7 @@ defineProps({
 
 const page = usePage();
 const user = computed(() => page.props.auth?.user);
-const sidebarOpen = ref(false);
+const isSidebarOpen = ref(false);
 
 // Pimpinan navigation items
 const navigation = [
@@ -19,6 +19,16 @@ const navigation = [
         name: 'Executive Dashboard',
         href: '/pimpinan/dashboard',
         icon: 'chart-bar',
+    },
+    {
+        name: 'Threat Radar',
+        href: '/pimpinan/peta-platform',
+        icon: 'map-pin',
+    },
+    {
+        name: 'Case Pipeline',
+        href: '/pimpinan/case-pipeline',
+        icon: 'clipboard-list',
     },
     {
         name: 'Daftar Orang',
@@ -53,18 +63,25 @@ const logout = () => {
 </script>
 
 <template>
-    <div class="min-h-screen bg-tactical-bg">
-        <!-- Mobile sidebar overlay -->
-        <div
-            v-if="sidebarOpen"
-            class="fixed inset-0 z-40 bg-black/50 lg:hidden"
-            @click="sidebarOpen = false"
-        />
+    <div class="min-h-screen bg-slate-950">
+        <!-- Sidebar backdrop overlay -->
+        <Transition
+            enter-active-class="transition-opacity duration-300"
+            leave-active-class="transition-opacity duration-300"
+            enter-from-class="opacity-0"
+            leave-to-class="opacity-0"
+        >
+            <div
+                v-if="isSidebarOpen"
+                class="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+                @click="isSidebarOpen = false"
+            />
+        </Transition>
 
         <!-- Sidebar -->
         <aside
-            class="fixed top-0 left-0 z-50 h-full w-64 bg-gradient-to-b from-purple-900 to-indigo-900 transform transition-transform duration-300 lg:translate-x-0"
-            :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
+            class="fixed top-0 left-0 z-50 h-full w-64 bg-gradient-to-b from-purple-900 to-indigo-900 transform transition-transform duration-300 shadow-2xl"
+            :class="isSidebarOpen ? 'translate-x-0' : '-translate-x-full'"
         >
             <!-- Logo Section -->
             <div class="flex items-center justify-center h-20 border-b border-purple-700/50">
@@ -105,10 +122,25 @@ const logout = () => {
                                 d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                             />
                         </svg>
+                        <!-- Map Pin Icon (Peta & Platform) -->
+                        <svg v-else-if="item.icon === 'map-pin'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                            />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                            />
+                        </svg>
                         <!-- Dashboard Icon -->
                         <svg v-else-if="item.icon === 'dashboard'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"
+                            />
+                        </svg>
+                        <!-- Clipboard List Icon (Case Pipeline) -->
+                        <svg v-else-if="item.icon === 'clipboard-list'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
                             />
                         </svg>
                         <!-- Users Icon -->
@@ -152,29 +184,33 @@ const logout = () => {
         </aside>
 
         <!-- Main Content -->
-        <div class="lg:pl-64">
-            <!-- Top Header -->
-            <header class="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm">
+        <div class="w-full">
+            <!-- Top Header — Glassmorphism -->
+            <header class="sticky top-0 z-30 bg-slate-900/80 backdrop-blur-md border-b border-slate-800">
                 <div class="flex items-center justify-between h-16 px-4 lg:px-8">
-                    <!-- Mobile menu button -->
-                    <button
-                        @click="sidebarOpen = true"
-                        class="lg:hidden p-2 text-gray-600 hover:text-purple-700"
-                    >
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-                        </svg>
-                    </button>
-
-                    <!-- Page Title -->
-                    <h1 class="text-lg font-bold text-gray-900 lg:text-xl">
-                        {{ title }}
-                    </h1>
+                    <!-- Left: Hamburger + Title -->
+                    <div class="flex items-center gap-3">
+                        <button
+                            @click="isSidebarOpen = true"
+                            class="p-2 text-slate-300 hover:text-cyan-400 hover:bg-slate-800/60 rounded-lg transition-colors"
+                            title="Buka menu navigasi"
+                        >
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                            </svg>
+                        </button>
+                        <div class="leading-tight">
+                            <h1 class="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+                                {{ title }}
+                            </h1>
+                            <p class="text-[10px] text-slate-400 tracking-widest uppercase font-mono mt-0.5">Pusat Komando Analitik Siber Jateng</p>
+                        </div>
+                    </div>
 
                     <!-- Right side -->
                     <div class="flex items-center gap-4">
-                        <span class="text-sm text-gray-500 hidden md:block">{{ currentDate }}</span>
-                        <span class="px-3 py-1 text-xs font-semibold bg-purple-600 text-white rounded-full">
+                        <span class="text-sm text-slate-400 hidden md:block">{{ currentDate }}</span>
+                        <span class="px-3 py-1 text-xs font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/25 rounded-full">
                             Pimpinan
                         </span>
                     </div>

@@ -2,18 +2,29 @@
 import SidebarLayout from '@/Layouts/SidebarLayout.vue';
 import ToastContainer from '@/Components/ToastContainer.vue';
 import { Head, Link, router } from '@inertiajs/vue3';
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, onMounted } from 'vue';
+import { usePage } from '@inertiajs/vue3';
 import { useToast } from '@/Composables/useToast';
 
 const props = defineProps({
     laporan: Object, // Paginated data
     filters: Object,
+    tahunOptions: Array,
 });
 
 const toast = useToast();
+const page = usePage();
+
+// Show flash message dari redirect (contoh: setelah hapus laporan)
+onMounted(() => {
+    const flash = page.props.flash ?? {};
+    if (flash.success) toast.success(flash.success);
+    if (flash.error)   toast.error(flash.error);
+});
 
 const search = ref(props.filters?.search || '');
 const status = ref(props.filters?.status || '');
+const tahun = ref(props.filters?.tahun || new Date().getFullYear().toString());
 
 // Status badge colors
 const getStatusClass = (stat) => {
@@ -82,6 +93,7 @@ const handleSearch = () => {
         router.get('/laporan', {
             search: search.value,
             status: status.value,
+            tahun: tahun.value,
         }, {
             preserveState: true,
             replace: true,
@@ -89,7 +101,7 @@ const handleSearch = () => {
     }, 300);
 };
 
-watch([search, status], handleSearch);
+watch([search, status, tahun], handleSearch);
 
 // Delete confirmation
 const deleteConfirm = ref(null);
@@ -211,6 +223,13 @@ const stats = computed(() => {
                             <option value="Diversi">Diversi</option>
                         </select>
 
+                        <select
+                            v-model="tahun"
+                            class="rounded-lg border-gray-300 focus:border-tactical-accent focus:ring-tactical-accent"
+                        >
+                            <option v-for="yr in tahunOptions" :key="yr" :value="yr">{{ yr }}</option>
+                        </select>
+
                         <Link
                             href="/laporan/create"
                             class="px-4 py-2.5 bg-tactical-accent text-white font-semibold rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 min-h-[44px]"
@@ -277,7 +296,7 @@ const stats = computed(() => {
                                             class="p-2 text-orange-500 cursor-help relative group"
                                             :title="`Terindikasi Residivis/Sindikat (${item.residivis_count} kasus terkait)`"
                                         >
-                                            <svg class="w-5 h-5 animate-pulse" fill="currentColor" viewBox="0 0 20 20">
+                                            <svg :class="['w-5 h-5', !item.assigned_subdit ? 'animate-pulse' : '']" fill="currentColor" viewBox="0 0 20 20">
                                                 <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
                                             </svg>
                                             <!-- Tooltip -->
@@ -310,12 +329,12 @@ const stats = computed(() => {
                                             </svg>
                                         </Link>
                                         
-                                        <!-- PDF -->
+                                        <!-- Download Word -->
                                         <a
-                                            :href="`/laporan/${item.id}/pdf`"
+                                            :href="`/laporan/${item.id}/export-word`"
                                             target="_blank"
-                                            class="p-2 text-gray-500 hover:text-tactical-danger hover:bg-red-50 rounded-lg transition-colors"
-                                            title="Download PDF"
+                                            class="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                            title="Download STPA (Word)"
                                         >
                                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />

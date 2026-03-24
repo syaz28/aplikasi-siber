@@ -570,8 +570,8 @@ const categoryChartSeries = computed(() => [{
                                         {{ report.nomor_stpa }}
                                     </td>
                                     <td class="px-4 py-3 text-sm text-gray-600">
-                                        <div>{{ report.created_at }}</div>
-                                        <div class="text-xs text-gray-400">{{ report.created_at_diff }}</div>
+                                        <div>{{ report.tanggal_laporan }}</div>
+                                        <div class="text-xs text-gray-400">{{ report.tanggal_laporan_diff }}</div>
                                     </td>
                                     <td class="px-4 py-3 text-sm">
                                         <div class="font-medium text-gray-800">{{ report.pelapor_nama }}</div>

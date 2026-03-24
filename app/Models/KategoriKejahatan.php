@@ -31,7 +31,6 @@ class KategoriKejahatan extends Model
      */
     protected $fillable = [
         'nama',
-        'deskripsi',
         'is_active',
     ];
 

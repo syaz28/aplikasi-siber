@@ -2,7 +2,7 @@
 import AdminLayout from '@/Layouts/AdminLayout.vue';
 import ToastContainer from '@/Components/ToastContainer.vue';
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
-import { ref, watch, onMounted } from 'vue';
+import { ref, watch, onMounted, nextTick } from 'vue';
 import { useToast } from '@/Composables/useToast';
 
 const props = defineProps({
@@ -10,6 +10,7 @@ const props = defineProps({
     filters: Object,
     subditOptions: Array,
     statusOptions: Array,
+    tahunOptions: Array,
 });
 
 const toast = useToast();
@@ -28,6 +29,45 @@ const search = ref(props.filters?.search || '');
 const assigned = ref(props.filters?.assigned || '');
 const subdit = ref(props.filters?.subdit || '');
 const status = ref(props.filters?.status || '');
+const tahun = ref(props.filters?.tahun || new Date().getFullYear().toString());
+
+// Import Excel
+const fileInput = ref(null);
+const importing = ref(false);
+
+const triggerImport = () => {
+    fileInput.value?.click();
+};
+
+const handleImport = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    importing.value = true;
+
+    router.post('/admin/laporan/import', {
+        file: file,
+    }, {
+        forceFormData: true,
+        preserveScroll: true,
+        onSuccess: () => {
+            importing.value = false;
+            if (fileInput.value) fileInput.value.value = '';
+            // Flash messages handled by onMounted
+            nextTick(() => {
+                const pg = usePage();
+                if (pg.props.flash?.success) toast.success(pg.props.flash.success);
+                if (pg.props.flash?.error) toast.error(pg.props.flash.error);
+            });
+        },
+        onError: (errors) => {
+            importing.value = false;
+            if (fileInput.value) fileInput.value.value = '';
+            const msg = errors.file || 'Gagal mengimport file.';
+            toast.error(msg);
+        },
+    });
+};
 
 let searchTimeout = null;
 const handleSearch = () => {
@@ -38,6 +78,7 @@ const handleSearch = () => {
             assigned: assigned.value,
             subdit: subdit.value,
             status: status.value,
+            tahun: tahun.value,
         }, {
             preserveState: true,
             replace: true,
@@ -45,7 +86,7 @@ const handleSearch = () => {
     }, 300);
 };
 
-watch([search, assigned, subdit, status], handleSearch);
+watch([search, assigned, subdit, status, tahun], handleSearch);
 
 // Assign modal
 const assignModal = ref(null);
@@ -148,14 +189,46 @@ const getStatusClass = (stat) => {
         
         <div class="max-w-7xl mx-auto">
             <!-- Header -->
-            <div class="mb-6">
-                <h1 class="text-2xl font-bold text-slate-800">Laporan Masuk</h1>
-                <p class="text-slate-600">Kelola dan tugaskan laporan ke subdit</p>
+            <div class="mb-6 flex items-center justify-between">
+                <div>
+                    <h1 class="text-2xl font-bold text-slate-800">Laporan Masuk</h1>
+                    <p class="text-slate-600">Kelola dan tugaskan laporan ke subdit</p>
+                </div>
+                <div>
+                    <input
+                        ref="fileInput"
+                        type="file"
+                        accept=".xlsx,.xls,.csv"
+                        class="hidden"
+                        @change="handleImport"
+                    />
+                    <button
+                        @click="triggerImport"
+                        :disabled="importing"
+                        :class="[
+                            'inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition shadow-sm',
+                            importing
+                                ? 'bg-gray-300 text-gray-500 cursor-wait'
+                                : 'bg-emerald-600 text-white hover:bg-emerald-700 active:bg-emerald-800'
+                        ]"
+                    >
+                        <!-- Spinner -->
+                        <svg v-if="importing" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <!-- Upload icon -->
+                        <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                        </svg>
+                        {{ importing ? 'Mengimport...' : 'Import Excel' }}
+                    </button>
+                </div>
             </div>
 
             <!-- Filters -->
             <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
-                <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+                <div class="grid grid-cols-1 md:grid-cols-6 gap-4">
                     <div class="md:col-span-2">
                         <label class="block text-sm font-medium text-slate-700 mb-1">Cari</label>
                         <div class="relative">
@@ -199,6 +272,15 @@ const getStatusClass = (stat) => {
                         >
                             <option value="">Semua Status</option>
                             <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Tahun</label>
+                        <select
+                            v-model="tahun"
+                            class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                        >
+                            <option v-for="yr in tahunOptions" :key="yr" :value="yr">{{ yr }}</option>
                         </select>
                     </div>
                 </div>
@@ -296,7 +378,7 @@ const getStatusClass = (stat) => {
                                             title="Terindikasi Residivis/Sindikat"
                                         >
                                             <span class="relative flex h-6 w-6 items-center justify-center">
-                                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                                                <span v-if="!lap.assigned_subdit" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
                                                 <svg class="relative w-5 h-5 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
                                                     <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
                                                 </svg>

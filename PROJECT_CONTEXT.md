@@ -1,7 +1,5 @@
 # 📋 PROJECT CONTEXT - Sistem Laporan Kejahatan Siber POLDA JATENG
 
-> **Dokumen ini untuk membantu AI (Gemini/ChatGPT) memahami arsitektur dan struktur projek**
-
 ---
 
 ## 🏢 Tentang Aplikasi

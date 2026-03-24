@@ -10,7 +10,8 @@ use App\Models\Lampiran;
 use App\Models\Laporan;
 use App\Models\Orang;
 use App\Models\Tersangka;
-use App\Services\StpaPdfService;
+use App\Services\StpaWordService;
+use App\Services\SuratPengaduanWordService;
 use App\Services\TerbilangService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -75,6 +76,12 @@ class LaporanController extends Controller
             'petugas',
         ]);
 
+        // Year filter (default: current year)
+        $tahun = $request->input('tahun', date('Y'));
+        if ($tahun) {
+            $query->whereYear('tanggal_laporan', $tahun);
+        }
+
         // Search filters
         if ($request->filled('search')) {
             $search = $request->input('search');
@@ -103,10 +110,8 @@ class LaporanController extends Controller
             $query->where('kode_provinsi_kejadian', $request->input('kode_provinsi'));
         }
 
-        // Sorting
-        $sortBy = $request->input('sort_by', 'tanggal_laporan');
-        $sortDir = $request->input('sort_dir', 'desc');
-        $query->orderBy($sortBy, $sortDir);
+        // Sorting - by STPA sequence number descending (e.g., 231, 230, 229...)
+        $query->orderByRaw("CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(nomor_stpa, '/', 2), '/', -1) AS UNSIGNED) DESC");
 
         // Pagination
         $perPage = $request->input('per_page', 15);
@@ -126,8 +131,9 @@ class LaporanController extends Controller
         // Return Inertia response for page render
         return Inertia::render('Laporan/Index', [
             'laporan' => $laporan,
-            'filters' => $request->only(['search', 'status', 'kategori_kejahatan_id', 'tanggal_dari', 'tanggal_sampai']),
+            'filters' => $request->only(['search', 'status', 'kategori_kejahatan_id', 'tanggal_dari', 'tanggal_sampai', 'tahun']),
             'statusOptions' => Laporan::getStatusOptions(),
+            'tahunOptions' => [2024, 2025, 2026],
         ]);
     }
 
@@ -614,54 +620,292 @@ class LaporanController extends Controller
 
     /**
      * Update the specified laporan.
+     * 
+     * Handles nested data updates for pelapor, korban, and tersangka.
+     * Uses delete-and-recreate strategy for korban and tersangka arrays.
      */
     public function update(Request $request, int $id): JsonResponse
     {
         $laporan = Laporan::findOrFail($id);
 
-        $validated = $request->validate([
-            'nomor_stpa' => 'nullable|string|max:50|unique:laporan,nomor_stpa,' . $id,
-            'tanggal_laporan' => 'sometimes|date',
-            'hubungan_pelapor' => 'sometimes|in:diri_sendiri,keluarga,kuasa_hukum,teman,rekan_kerja,lainnya',
-            'petugas_id' => 'sometimes|exists:users,id',
-            'kategori_kejahatan_id' => 'sometimes|exists:kategori_kejahatan,id',
-            'kode_provinsi_kejadian' => 'nullable|exists:wilayah,kode',
-            'kode_kabupaten_kejadian' => 'nullable|exists:wilayah,kode',
-            'kode_kecamatan_kejadian' => 'nullable|exists:wilayah,kode',
-            'kode_kelurahan_kejadian' => 'nullable|exists:wilayah,kode',
-            'alamat_kejadian' => 'nullable|string',
-            'waktu_kejadian' => 'sometimes|date',
-            'modus' => 'sometimes|string',
-            'status' => 'sometimes|in:Penyelidikan,Penyidikan,Tahap I,Tahap II,SP3,RJ,Diversi',
-            'catatan' => 'nullable|string',
-        ]);
+        // Check if this is a comprehensive update (with nested pelapor data) or simple update
+        $isComprehensiveUpdate = $request->has('pelapor');
 
-        try {
-            $validated['updated_by'] = auth()->id();
-            $laporan->update($validated);
-
-            $laporan->load($this->eagerLoads);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Laporan berhasil diperbarui',
-                'data' => $laporan,
+        if ($isComprehensiveUpdate) {
+            // Comprehensive update with nested data
+            $validated = $request->validate([
+                // Pelapor data
+                'pelapor' => 'required|array',
+                'pelapor.kewarganegaraan' => 'required|in:WNI,WNA',
+                'pelapor.negara_asal' => 'required_if:pelapor.kewarganegaraan,WNA|nullable|string|max:50',
+                'pelapor.nik' => $request->input('pelapor.kewarganegaraan') === 'WNI' 
+                    ? 'required|string|size:16' 
+                    : 'required|string|max:50',
+                'pelapor.nama' => 'required|string|max:100',
+                'pelapor.tempat_lahir' => $request->input('pelapor.kewarganegaraan') === 'WNI' 
+                    ? 'required|string|max:100' 
+                    : 'nullable|string|max:100',
+                'pelapor.tanggal_lahir' => 'required|date',
+                'pelapor.jenis_kelamin' => 'required|in:LAKI-LAKI,PEREMPUAN',
+                'pelapor.pekerjaan' => 'required|string|max:100',
+                'pelapor.pendidikan' => 'required|string|max:50',
+                'pelapor.telepon' => 'required|string|max:30',
+                
+                // Alamat KTP (WNI only)
+                'pelapor.alamat_ktp' => $request->input('pelapor.kewarganegaraan') === 'WNI' ? 'required|array' : 'nullable|array',
+                'pelapor.alamat_ktp.kode_provinsi' => $request->input('pelapor.kewarganegaraan') === 'WNI' 
+                    ? 'required|exists:wilayah,kode' 
+                    : 'nullable',
+                'pelapor.alamat_ktp.kode_kabupaten' => $request->input('pelapor.kewarganegaraan') === 'WNI' 
+                    ? 'required|exists:wilayah,kode' 
+                    : 'nullable',
+                'pelapor.alamat_ktp.kode_kecamatan' => $request->input('pelapor.kewarganegaraan') === 'WNI' 
+                    ? 'required|exists:wilayah,kode' 
+                    : 'nullable',
+                'pelapor.alamat_ktp.kode_kelurahan' => $request->input('pelapor.kewarganegaraan') === 'WNI' 
+                    ? 'required|exists:wilayah,kode' 
+                    : 'nullable',
+                'pelapor.alamat_ktp.detail_alamat' => $request->input('pelapor.kewarganegaraan') === 'WNI' 
+                    ? 'required|string' 
+                    : 'nullable|string',
+                
+                // Alamat Domisili (required for all)
+                'pelapor.alamat_domisili' => 'required|array',
+                'pelapor.alamat_domisili.kode_provinsi' => 'required|exists:wilayah,kode',
+                'pelapor.alamat_domisili.kode_kabupaten' => 'required|exists:wilayah,kode',
+                'pelapor.alamat_domisili.kode_kecamatan' => 'required|exists:wilayah,kode',
+                'pelapor.alamat_domisili.kode_kelurahan' => 'required|exists:wilayah,kode',
+                'pelapor.alamat_domisili.detail_alamat' => 'required|string',
+                
+                'hubungan_pelapor' => 'required|in:diri_sendiri,keluarga,kuasa_hukum,teman,rekan_kerja,lainnya',
+                
+                // Kejadian
+                'kategori_kejahatan_id' => 'required|exists:kategori_kejahatan,id',
+                'waktu_kejadian' => 'required|date',
+                'modus' => 'required|string',
+                'catatan' => 'nullable|string',
+                'kode_kabupaten_kejadian' => 'required|exists:wilayah,kode',
+                'alamat_kejadian' => 'nullable|string',
+                
+                // Korban array
+                'korban' => 'required|array|min:1',
+                'korban.*.orang' => 'required|array',
+                'korban.*.orang.nik' => 'required|string|max:50',
+                'korban.*.orang.nama' => 'required|string|max:100',
+                'korban.*.orang.tempat_lahir' => 'nullable|string|max:100',
+                'korban.*.orang.tanggal_lahir' => 'nullable|date',
+                'korban.*.orang.jenis_kelamin' => 'nullable|in:LAKI-LAKI,PEREMPUAN',
+                'korban.*.orang.pekerjaan' => 'nullable|string|max:100',
+                'korban.*.orang.pendidikan' => 'nullable|string|max:50',
+                'korban.*.orang.telepon' => 'nullable|string|max:30',
+                'korban.*.kerugian_nominal' => 'required|numeric|min:0',
+                'korban.*.keterangan' => 'nullable|string',
+                
+                // Tersangka array
+                'tersangka' => 'nullable|array',
+                'tersangka.*.catatan' => 'nullable|string',
+                'tersangka.*.identitas' => 'nullable|array',
+                'tersangka.*.identitas.*.jenis' => 'required|string',
+                'tersangka.*.identitas.*.nilai' => 'required|string|max:255',
+                'tersangka.*.identitas.*.platform' => 'nullable|string|max:100',
             ]);
 
-        } catch (\Exception $e) {
-            Log::error('Error updating laporan: ' . $e->getMessage());
+            try {
+                DB::beginTransaction();
 
-            return response()->json([
-                'success' => false,
-                'message' => 'Gagal memperbarui laporan: ' . $e->getMessage(),
-            ], 500);
+                // 1. Update Pelapor (Orang)
+                $pelapor = $laporan->pelapor;
+                $pelapor->update([
+                    'nik' => $validated['pelapor']['nik'],
+                    'nama' => $validated['pelapor']['nama'],
+                    'kewarganegaraan' => $validated['pelapor']['kewarganegaraan'],
+                    'negara_asal' => $validated['pelapor']['negara_asal'] ?? null,
+                    'tempat_lahir' => $validated['pelapor']['tempat_lahir'] ?? null,
+                    'tanggal_lahir' => $validated['pelapor']['tanggal_lahir'],
+                    'jenis_kelamin' => $validated['pelapor']['jenis_kelamin'],
+                    'pekerjaan' => $validated['pelapor']['pekerjaan'],
+                    'pendidikan' => $validated['pelapor']['pendidikan'],
+                    'telepon' => $validated['pelapor']['telepon'],
+                ]);
+
+                // 2. Update Alamat for Pelapor
+                if ($validated['pelapor']['kewarganegaraan'] === 'WNI') {
+                    // Update Alamat KTP
+                    Alamat::updateOrCreate(
+                        ['orang_id' => $pelapor->id, 'jenis_alamat' => 'ktp'],
+                        [
+                            'negara' => 'Indonesia',
+                            'kode_provinsi' => $validated['pelapor']['alamat_ktp']['kode_provinsi'] ?? null,
+                            'kode_kabupaten' => $validated['pelapor']['alamat_ktp']['kode_kabupaten'] ?? null,
+                            'kode_kecamatan' => $validated['pelapor']['alamat_ktp']['kode_kecamatan'] ?? null,
+                            'kode_kelurahan' => $validated['pelapor']['alamat_ktp']['kode_kelurahan'] ?? null,
+                            'detail_alamat' => $validated['pelapor']['alamat_ktp']['detail_alamat'] ?? '',
+                        ]
+                    );
+                    
+                    // Update Alamat Domisili
+                    Alamat::updateOrCreate(
+                        ['orang_id' => $pelapor->id, 'jenis_alamat' => 'domisili'],
+                        [
+                            'negara' => 'Indonesia',
+                            'kode_provinsi' => $validated['pelapor']['alamat_domisili']['kode_provinsi'] ?? null,
+                            'kode_kabupaten' => $validated['pelapor']['alamat_domisili']['kode_kabupaten'] ?? null,
+                            'kode_kecamatan' => $validated['pelapor']['alamat_domisili']['kode_kecamatan'] ?? null,
+                            'kode_kelurahan' => $validated['pelapor']['alamat_domisili']['kode_kelurahan'] ?? null,
+                            'detail_alamat' => $validated['pelapor']['alamat_domisili']['detail_alamat'] ?? '',
+                        ]
+                    );
+                } else {
+                    // For WNA: Update Alamat Domisili only
+                    Alamat::updateOrCreate(
+                        ['orang_id' => $pelapor->id, 'jenis_alamat' => 'domisili'],
+                        [
+                            'negara' => 'Indonesia',
+                            'kode_provinsi' => $validated['pelapor']['alamat_domisili']['kode_provinsi'] ?? null,
+                            'kode_kabupaten' => $validated['pelapor']['alamat_domisili']['kode_kabupaten'] ?? null,
+                            'kode_kecamatan' => $validated['pelapor']['alamat_domisili']['kode_kecamatan'] ?? null,
+                            'kode_kelurahan' => $validated['pelapor']['alamat_domisili']['kode_kelurahan'] ?? null,
+                            'detail_alamat' => $validated['pelapor']['alamat_domisili']['detail_alamat'] ?? '',
+                        ]
+                    );
+                }
+
+                // 3. Update Laporan basic fields
+                $laporan->update([
+                    'hubungan_pelapor' => $validated['hubungan_pelapor'],
+                    'kategori_kejahatan_id' => $validated['kategori_kejahatan_id'],
+                    'kode_kabupaten_kejadian' => $validated['kode_kabupaten_kejadian'],
+                    'alamat_kejadian' => $validated['alamat_kejadian'] ?? null,
+                    'waktu_kejadian' => $validated['waktu_kejadian'],
+                    'modus' => $validated['modus'],
+                    'catatan' => $validated['catatan'] ?? null,
+                    'updated_by' => auth()->id(),
+                ]);
+
+                // 4. Delete and recreate Korban records
+                $laporan->korban()->delete();
+                
+                foreach ($validated['korban'] as $korbanData) {
+                    // Create or find Orang for korban
+                    $orangKorban = Orang::updateOrCreate(
+                        ['nik' => $korbanData['orang']['nik']],
+                        [
+                            'nama' => $korbanData['orang']['nama'],
+                            'tempat_lahir' => $korbanData['orang']['tempat_lahir'] ?? null,
+                            'tanggal_lahir' => $korbanData['orang']['tanggal_lahir'] ?? null,
+                            'jenis_kelamin' => $korbanData['orang']['jenis_kelamin'] ?? null,
+                            'pekerjaan' => $korbanData['orang']['pekerjaan'] ?? null,
+                            'pendidikan' => $korbanData['orang']['pendidikan'] ?? null,
+                            'telepon' => $korbanData['orang']['telepon'] ?? null,
+                        ]
+                    );
+
+                    Korban::create([
+                        'laporan_id' => $laporan->id,
+                        'orang_id' => $orangKorban->id,
+                        'kerugian_nominal' => $korbanData['kerugian_nominal'],
+                        'kerugian_terbilang' => TerbilangService::convert($korbanData['kerugian_nominal']),
+                        'keterangan' => $korbanData['keterangan'] ?? null,
+                    ]);
+                }
+
+                // 5. Delete and recreate Tersangka records
+                // Delete existing identitas first (cascade), then tersangka
+                foreach ($laporan->tersangka as $tersangka) {
+                    $tersangka->identitas()->delete();
+                }
+                $laporan->tersangka()->delete();
+                
+                if (!empty($validated['tersangka'])) {
+                    foreach ($validated['tersangka'] as $tersangkaData) {
+                        // Create Tersangka record (without orang_id for now)
+                        $tersangka = Tersangka::create([
+                            'laporan_id' => $laporan->id,
+                            'orang_id' => null,
+                            'catatan' => $tersangkaData['catatan'] ?? null,
+                        ]);
+
+                        // Create IdentitasTersangka records
+                        if (!empty($tersangkaData['identitas'])) {
+                            foreach ($tersangkaData['identitas'] as $identitasData) {
+                                IdentitasTersangka::create([
+                                    'tersangka_id' => $tersangka->id,
+                                    'jenis' => $identitasData['jenis'],
+                                    'nilai' => $identitasData['nilai'],
+                                    'platform' => $identitasData['platform'] ?? null,
+                                ]);
+                            }
+                        }
+                    }
+                }
+
+                DB::commit();
+
+                $laporan->load($this->eagerLoads);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Laporan berhasil diperbarui',
+                    'data' => $laporan,
+                ]);
+
+            } catch (\Exception $e) {
+                DB::rollBack();
+                Log::error('Error updating laporan (comprehensive): ' . $e->getMessage(), [
+                    'trace' => $e->getTraceAsString(),
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Gagal memperbarui laporan: ' . $e->getMessage(),
+                ], 500);
+            }
+        } else {
+            // Simple update (original behavior for admin/status changes)
+            $validated = $request->validate([
+                'nomor_stpa' => 'nullable|string|max:50|unique:laporan,nomor_stpa,' . $id,
+                'tanggal_laporan' => 'sometimes|date',
+                'hubungan_pelapor' => 'sometimes|in:diri_sendiri,keluarga,kuasa_hukum,teman,rekan_kerja,lainnya',
+                'petugas_id' => 'sometimes|exists:users,id',
+                'kategori_kejahatan_id' => 'sometimes|exists:kategori_kejahatan,id',
+                'kode_provinsi_kejadian' => 'nullable|exists:wilayah,kode',
+                'kode_kabupaten_kejadian' => 'nullable|exists:wilayah,kode',
+                'kode_kecamatan_kejadian' => 'nullable|exists:wilayah,kode',
+                'kode_kelurahan_kejadian' => 'nullable|exists:wilayah,kode',
+                'alamat_kejadian' => 'nullable|string',
+                'waktu_kejadian' => 'sometimes|date',
+                'modus' => 'sometimes|string',
+                'status' => 'sometimes|in:Penyelidikan,Penyidikan,Tahap I,Tahap II,SP3,RJ,Diversi',
+                'catatan' => 'nullable|string',
+            ]);
+
+            try {
+                $validated['updated_by'] = auth()->id();
+                $laporan->update($validated);
+
+                $laporan->load($this->eagerLoads);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Laporan berhasil diperbarui',
+                    'data' => $laporan,
+                ]);
+
+            } catch (\Exception $e) {
+                Log::error('Error updating laporan: ' . $e->getMessage());
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Gagal memperbarui laporan: ' . $e->getMessage(),
+                ], 500);
+            }
         }
     }
 
     /**
      * Remove the specified laporan.
      */
-    public function destroy(int $id): JsonResponse
+    public function destroy(int $id)
     {
         $laporan = Laporan::findOrFail($id);
 
@@ -678,49 +922,85 @@ class LaporanController extends Controller
 
             DB::commit();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Laporan berhasil dihapus',
-            ]);
+            return redirect()->route('laporan.index')
+                ->with('success', 'Laporan berhasil dihapus');
 
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error deleting laporan: ' . $e->getMessage());
 
-            return response()->json([
-                'success' => false,
-                'message' => 'Gagal menghapus laporan: ' . $e->getMessage(),
-            ], 500);
+            return back()->with('error', 'Gagal menghapus laporan: ' . $e->getMessage());
         }
     }
 
     /**
-     * Generate STPA PDF for the specified laporan.
+     * Export STPA as Word (.docx).
+     *
+     * Uses StpaWordService to programmatically generate the Word document
+     * with proper formatting, auto-calculated dashes, and police document styling.
      */
-    public function cetakPdf(int $id)
+    public function exportStpaWord(int $id)
     {
         $laporan = Laporan::with($this->eagerLoads)->findOrFail($id);
 
         try {
-            $pdfService = new StpaPdfService();
-            $pdfContent = $pdfService->generate($laporan);
-            
-            $filename = 'STPA-' . ($laporan->nomor_stpa ?? $laporan->id) . '.pdf';
-            
-            return response($pdfContent)
-                ->header('Content-Type', 'application/pdf')
-                ->header('Content-Disposition', 'inline; filename="' . $filename . '"')
-                ->header('Content-Length', strlen($pdfContent));
-                
+            $service = new StpaWordService();
+            $tempFile = $service->generate($laporan);
+
+            $stpaNumber = $laporan->nomor_stpa
+                ? str_replace('/', '-', $laporan->nomor_stpa)
+                : 'DRAFT-' . $laporan->id;
+
+            $filename = "STPA-{$stpaNumber}.docx";
+
+            return response()->download($tempFile, $filename, [
+                'Content-Type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            ])->deleteFileAfterSend(true);
+
         } catch (\Exception $e) {
-            Log::error('Error generating PDF: ' . $e->getMessage(), [
+            Log::error('Error generating Word STPA: ' . $e->getMessage(), [
                 'laporan_id' => $id,
                 'trace' => $e->getTraceAsString(),
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal generate PDF: ' . $e->getMessage(),
+                'message' => 'Gagal generate Word STPA: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Download Surat Pengaduan as Word (.docx).
+     */
+    public function downloadSuratPengaduan(int $id)
+    {
+        $laporan = Laporan::with($this->eagerLoads)->findOrFail($id);
+
+        try {
+            $service = new SuratPengaduanWordService();
+            $tempFile = $service->generate($laporan);
+
+            $stpaNumber = $laporan->nomor_stpa
+                ? str_replace('/', '-', $laporan->nomor_stpa)
+                : 'DRAFT-' . $laporan->id;
+
+            $namaPengadu = preg_replace('/[^A-Za-z0-9\-]/', '_', $laporan->pelapor?->nama ?? 'Unknown');
+            $filename = "Surat_Pengaduan_{$stpaNumber}_{$namaPengadu}.docx";
+
+            return response()->download($tempFile, $filename, [
+                'Content-Type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            ])->deleteFileAfterSend(true);
+
+        } catch (\Exception $e) {
+            Log::error('Error generating Surat Pengaduan: ' . $e->getMessage(), [
+                'laporan_id' => $id,
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal generate Surat Pengaduan: ' . $e->getMessage(),
             ], 500);
         }
     }

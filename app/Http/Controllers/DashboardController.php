@@ -36,10 +36,10 @@ class DashboardController extends Controller
         $startOfWeek = Carbon::now()->startOfWeek();
         
         // 1. Today's reports
-        $todayReports = Laporan::whereDate('created_at', $today)->count();
+        $todayReports = Laporan::whereDate('tanggal_laporan', $today)->count();
         
         // 2. Month's reports
-        $monthReports = Laporan::where('created_at', '>=', $startOfMonth)->count();
+        $monthReports = Laporan::where('tanggal_laporan', '>=', $startOfMonth)->count();
         
         // 3. Reports in active process (Penyelidikan, Penyidikan, Tahap I, Tahap II)
         $processReports = Laporan::whereIn('status', ['Penyelidikan', 'Penyidikan', 'Tahap I', 'Tahap II'])->count();
@@ -52,7 +52,7 @@ class DashboardController extends Controller
         
         // 5. Total kerugian bulan ini
         $monthLoss = Korban::whereHas('laporan', function ($q) use ($startOfMonth) {
-            $q->where('created_at', '>=', $startOfMonth);
+            $q->where('tanggal_laporan', '>=', $startOfMonth);
         })->sum('kerugian_nominal');
         
         $metrics = [
@@ -86,14 +86,14 @@ class DashboardController extends Controller
             'kategoriKejahatan:id,nama',
             'korban',
         ])
-            ->orderByDesc('created_at')
+            ->orderByDesc('tanggal_laporan')
             ->limit(5)
             ->get()
             ->map(fn($l) => [
                 'id' => $l->id,
                 'nomor_stpa' => $l->nomor_stpa ?? '-',
-                'created_at' => $l->created_at->format('d M Y H:i'),
-                'created_at_diff' => $l->created_at->diffForHumans(),
+                'tanggal_laporan' => $l->tanggal_laporan?->format('d M Y') ?? '-',
+                'tanggal_laporan_diff' => $l->tanggal_laporan?->diffForHumans() ?? '-',
                 'pelapor_nama' => $l->pelapor?->nama ?? '-',
                 'pelapor_telepon' => $l->pelapor?->telepon ?? '-',
                 'kategori' => $l->kategoriKejahatan?->nama ?? '-',
@@ -173,9 +173,9 @@ class DashboardController extends Controller
             ->whereNotNull('kategori_kejahatan_id');
             
         if ($endDate) {
-            $query->whereBetween('created_at', [$startDate, $endDate]);
+            $query->whereBetween('tanggal_laporan', [$startDate, $endDate]);
         } else {
-            $query->whereDate('created_at', $startDate);
+            $query->whereDate('tanggal_laporan', $startDate);
         }
         
         $result = $query->groupBy('kategori_kejahatan_id')
@@ -202,7 +202,7 @@ class DashboardController extends Controller
         for ($i = 6; $i >= 0; $i--) {
             $date = Carbon::today()->subDays($i);
             $labels[] = $dayNames[$date->dayOfWeek];
-            $series[] = Laporan::whereDate('created_at', $date)->count();
+            $series[] = Laporan::whereDate('tanggal_laporan', $date)->count();
         }
         
         return [

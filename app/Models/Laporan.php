@@ -93,6 +93,7 @@ class Laporan extends Model
         'modus',
         'status',
         'catatan',
+        'keterangan',
         'assigned_subdit',
         'assigned_by',
         'assigned_at',
